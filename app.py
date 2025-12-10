@@ -25,12 +25,64 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# --- 2. YARDIMCI FONKSİYONLAR ---
+# --- 2. SEMBOL KÜTÜPHANESİ (YENİ) ---
+# Yahoo Finance kodlarını kategorilere ayırdık
+SYMBOL_MAP = {
+    "Borsa İstanbul (BIST)": {
+        "THYAO.IS": "Türk Hava Yolları",
+        "GARAN.IS": "Garanti BBVA",
+        "ASELS.IS": "Aselsan",
+        "EREGL.IS": "Erdemir",
+        "KCHOL.IS": "Koç Holding",
+        "SASA.IS": "SASA Polyester",
+        "AKBNK.IS": "Akbank",
+        "YKBNK.IS": "Yapı Kredi",
+        "SISE.IS": "Şişecam",
+        "BIMAS.IS": "BİM Mağazaları",
+        "TUPRS.IS": "Tüpraş",
+        "FROTO.IS": "Ford Otosan",
+        "ISCTR.IS": "İş Bankası (C)",
+        "PETKM.IS": "Petkim",
+        "HEKTS.IS": "Hektaş"
+    },
+    "Döviz (TL Karşılığı)": {
+        "USDTRY=X": "Dolar / TL",
+        "EURTRY=X": "Euro / TL",
+        "GBPTRY=X": "Sterlin / TL",
+        "CHFTRY=X": "İsviçre Frangı / TL",
+        "EURUSD=X": "Euro / Dolar Paritesi"
+    },
+    "Altın & Emtia": {
+        "XAUTRY=X": "Gram Altın (TL)",
+        "GC=F": "Ons Altın (Dolar)",
+        "XAGTRY=X": "Gümüş (TL)",
+        "SI=F": "Ons Gümüş (Dolar)",
+        "BZ=F": "Brent Petrol (Dolar)"
+    },
+    "Kripto Para (TL)": {
+        "BTC-TRY": "Bitcoin (TL)",
+        "ETH-TRY": "Ethereum (TL)",
+        "SOL-TRY": "Solana (TL)",
+        "AVAX-TRY": "Avalanche (TL)",
+        "XRP-TRY": "Ripple (TL)",
+        "USDT-TRY": "Tether (TL)",
+        "DOGE-TRY": "Dogecoin (TL)"
+    },
+    "ABD Borsaları (Dolar)": {
+        "AAPL": "Apple",
+        "MSFT": "Microsoft",
+        "TSLA": "Tesla",
+        "NVDA": "NVIDIA",
+        "AMZN": "Amazon",
+        "GOOG": "Google"
+    }
+}
+
+# --- 3. YARDIMCI FONKSİYONLAR ---
 
 def save_to_db(collection_name, data):
     """Veriyi belirtilen koleksiyona kaydeder"""
     data["created_at"] = firestore.SERVER_TIMESTAMP
-    # Tarih formatlarını string'e çevir (Sorgulama kolaylığı için)
     if "date" in data and isinstance(data["date"], datetime.date):
         data["date_str"] = data["date"].strftime("%Y-%m-%d")
     if "due_date" in data and isinstance(data["due_date"], datetime.date):
@@ -40,7 +92,6 @@ def save_to_db(collection_name, data):
     st.toast(f"✅ Kayıt Başarılı: {collection_name}")
 
 def get_data(collection_name):
-    """Koleksiyondaki tüm veriyi çeker"""
     try:
         docs = db.collection(collection_name).order_by("created_at", direction=firestore.Query.DESCENDING).stream()
         items = []
@@ -53,7 +104,6 @@ def get_data(collection_name):
         return pd.DataFrame()
 
 def speak(text, lang='en'):
-    """Metni sese çevirir"""
     try:
         tts = gTTS(text=text, lang=lang)
         fp = io.BytesIO()
@@ -62,7 +112,6 @@ def speak(text, lang='en'):
     except: pass
 
 def calculate_totals(df):
-    """Günlük, Haftalık, Aylık toplam hesaplar"""
     if df.empty: return 0, 0, 0
     df['date_dt'] = pd.to_datetime(df['date_str'])
     today = pd.Timestamp.now().normalize()
@@ -74,9 +123,8 @@ def calculate_totals(df):
     m_sum = df[df['date_dt'] >= start_month]['amount'].sum()
     return d_sum, w_sum, m_sum
 
-# --- 3. FİNANSAL VERİ ÇEKME (YAHOO FINANCE) ---
+# --- 4. FİNANSAL VERİ ÇEKME ---
 def get_asset_current_price(symbol):
-    """Anlık fiyat çeker"""
     try:
         ticker = yf.Ticker(symbol)
         history = ticker.history(period="1d")
@@ -85,21 +133,7 @@ def get_asset_current_price(symbol):
         return 0.0
     except: return 0.0
 
-def get_historical_price(symbol, date_obj):
-    """Geçmiş kapanış fiyatını çeker"""
-    try:
-        start_date = date_obj.strftime("%Y-%m-%d")
-        end_date = (date_obj + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        data = yf.download(symbol, start=start_date, end=end_date, progress=False)
-        if not data.empty:
-            # Multi-index dönerse düzelt
-            if isinstance(data.columns, pd.MultiIndex):
-                return data['Close'].iloc[0].iloc[0] 
-            return data['Close'].iloc[0]
-        return 0.0
-    except: return 0.0
-
-# --- 4. ARAYÜZ VE NAVİGASYON ---
+# --- 5. ARAYÜZ VE NAVİGASYON ---
 st.sidebar.title("🚀 Life OS")
 main_module = st.sidebar.selectbox(
     "Modül Seç", 
@@ -126,35 +160,28 @@ if main_module == "Dil Asistanı":
     elif lang_menu == "Excel'den Yükle":
         st.subheader("Toplu Yükleme")
         st.info("Sütunlar: 'Word', 'Meaning 1', 'Pharase' (veya Phrase) içermeli.")
-        
         lang_type = st.radio("Dil Seçimi", ["🇬🇧 İngilizce", "🇩🇪 Almanca"])
         up_file = st.file_uploader("Excel Dosyası", type=["xlsx", "xls"])
         
         if up_file and st.button("Yüklemeyi Başlat"):
             try:
                 df = pd.read_excel(up_file)
-                # Sütun isimlerini temizle
                 df.columns = df.columns.str.strip()
                 count = 0
-                
                 progress_bar = st.progress(0)
                 for idx, row in df.iterrows():
                     word_data = {}
-                    
-                    # Ortak 'Phrase' bulma (Yazım hatası toleransı)
                     phrase_col = next((c for c in df.columns if "harase" in c.lower() or "hrase" in c.lower()), None)
                     word_data["sentence_source"] = str(row[phrase_col]) if phrase_col and pd.notna(row[phrase_col]) else ""
 
                     if "İngilizce" in lang_type:
                         word_data["en"] = str(row.get("Word", ""))
-                        # Meaning 1 ve 2 birleşimi
                         m1 = str(row.get("Meaning 1", ""))
                         m2 = str(row.get("Meaning 2", ""))
                         word_data["tr"] = f"{m1}, {m2}".strip(", ") if pd.notna(row.get("Meaning 2")) else m1
                         word_data["de"] = ""
                     else:
                         word_data["de"] = str(row.get("Word", ""))
-                        # Almanca excelde 'Meaning in Turkish' var
                         tr_col = next((c for c in df.columns if "turkish" in c.lower()), None)
                         m1 = str(row.get("Meaning 1", ""))
                         tr_val = str(row[tr_col]) if tr_col else m1
@@ -165,14 +192,11 @@ if main_module == "Dil Asistanı":
                         word_data["learned_count"] = 0
                         save_to_db("vocabulary", word_data)
                         count += 1
-                    
                     progress_bar.progress((idx + 1) / len(df))
-                
-                st.success(f"{count} kelime başarıyla eklendi!")
+                st.success(f"{count} kelime eklendi!")
                 time.sleep(1)
                 st.rerun()
-            except Exception as e:
-                st.error(f"Hata: {e}")
+            except Exception as e: st.error(f"Hata: {e}")
 
     elif lang_menu == "Kelime Listesi":
         df = get_data("vocabulary")
@@ -180,10 +204,8 @@ if main_module == "Dil Asistanı":
             search = st.text_input("Kelime Ara")
             if search:
                 df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
-            
             st.dataframe(df[['en', 'de', 'tr', 'sentence_source']], use_container_width=True)
-            
-            sel_word = st.selectbox("Dinlemek için seç:", df['tr'].unique())
+            sel_word = st.selectbox("Seç:", df['tr'].unique())
             if sel_word:
                 row = df[df['tr'] == sel_word].iloc[0]
                 c1, c2 = st.columns(2)
@@ -214,9 +236,8 @@ if main_module == "Dil Asistanı":
                 q = q_data[idx]
                 st.progress((idx)/len(q_data))
                 st.markdown(f"### ❓ {q.get('en') or q.get('de')}")
-                
                 if st.session_state.get('show'):
-                    st.success(f"Cevap: **{q['tr']}**")
+                    st.success(f"**{q['tr']}**")
                     st.info(q.get('sentence_source'))
                     c1, c2 = st.columns(2)
                     if c1.button("✅ Bildim"):
@@ -228,12 +249,12 @@ if main_module == "Dil Asistanı":
                         st.session_state['idx'] += 1
                         st.session_state['show'] = False
                         st.rerun()
-                elif st.button("Cevabı Göster"):
+                elif st.button("Göster"):
                     st.session_state['show'] = True
                     st.rerun()
             else:
                 st.balloons()
-                st.success(f"Bitti! Skor: {st.session_state['score']}")
+                st.success(f"Skor: {st.session_state['score']}")
                 if st.button("Tekrar"): new_quiz()
 
 # ==========================================
@@ -248,10 +269,9 @@ elif main_module == "Fiziksel Takip":
         c1, c2 = st.columns(2)
         w_type = c1.selectbox("Tür", ["Fitness", "Kardiyo", "Yüzme", "Yoga"])
         dur = c2.number_input("Süre (dk)", 10, 300, 60)
-        note = st.text_area("Notlar (Bölge, set vb.)")
+        note = st.text_area("Notlar")
         if st.button("Kaydet"):
             save_to_db("workouts", {"type": w_type, "duration": dur, "notes": note, "date": datetime.date.today()})
-        
         st.divider()
         df = get_data("workouts")
         if not df.empty: st.dataframe(df[['date_str', 'type', 'duration', 'notes']], use_container_width=True)
@@ -265,7 +285,6 @@ elif main_module == "Fiziksel Takip":
             m = c3.number_input("Kas %", format="%.1f")
             if st.form_submit_button("Kaydet"):
                 save_to_db("measurements", {"weight": w, "fat": f, "muscle": m, "date": datetime.date.today()})
-        
         st.divider()
         df = get_data("measurements")
         if not df.empty:
@@ -279,7 +298,6 @@ elif main_module == "Fiziksel Takip":
         meal = c2.text_input("İçerik")
         if st.button("Ekle"):
             save_to_db("meals", {"calories": cal, "content": meal, "date": datetime.date.today()})
-        
         st.divider()
         df = get_data("meals")
         if not df.empty:
@@ -293,10 +311,8 @@ elif main_module == "Fiziksel Takip":
 # ==========================================
 elif main_module == "Finans Merkezi":
     st.title("💰 Finansal Yönetim Paneli")
-    
     tabs = st.tabs(["📊 Genel Bakış", "💸 Harcama", "💳 Ödeme", "🤝 Borç/Alacak", "📈 Yatırım"])
     
-    # Genel verileri çek
     df_exp = get_data("expenses")
     df_pay = get_data("payments")
     df_inv = get_data("investments")
@@ -305,28 +321,24 @@ elif main_module == "Finans Merkezi":
     with tabs[0]:
         st.header("Finansal Özet")
         c1, c2, c3 = st.columns(3)
-        
         with c1:
             st.subheader("Harcamalar")
             if not df_exp.empty:
                 d, w, m = calculate_totals(df_exp)
                 st.metric("Bu Ay", f"{m:,.2f} TL", f"Bugün: {d:,.2f} TL")
             else: st.write("-")
-
         with c2:
             st.subheader("Yatırımlar")
             if not df_inv.empty:
                 total_inv = df_inv['amount'].sum()
                 st.metric("Toplam Maliyet", f"{total_inv:,.2f} TL")
             else: st.write("-")
-
         with c3:
             st.subheader("Ödemeler")
             if not df_pay.empty:
                 _, _, m_pay = calculate_totals(df_pay)
                 st.metric("Bu Ay Ödenen", f"{m_pay:,.2f} TL")
             else: st.write("-")
-
         st.divider()
         if not df_exp.empty:
             st.subheader("Kategori Dağılımı")
@@ -348,7 +360,6 @@ elif main_module == "Finans Merkezi":
             cat_in = col4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Diğer"])
             method_in = col5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"])
             nec_in = col6.selectbox("Gerekli mi?", ["Evet", "Hayır"])
-            
             desc_in = st.text_area("Açıklama")
             
             if st.form_submit_button("Harcamayı Kaydet"):
@@ -357,7 +368,6 @@ elif main_module == "Finans Merkezi":
                     "place": place_in, "amount": amount_in, "category": cat_in,
                     "method": method_in, "necessity": nec_in, "desc": desc_in
                 })
-
         st.divider()
         st.subheader("Son Harcamalar")
         if not df_exp.empty:
@@ -371,20 +381,16 @@ elif main_module == "Finans Merkezi":
             p_date = c1.date_input("Tarih", datetime.date.today())
             p_amount = c2.number_input("Tutar (TL)", min_value=0.0)
             p_place = c3.text_input("Yer / Kanal")
-            
             c4, c5 = st.columns(2)
             p_type = c4.selectbox("Ödeme Türü", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
             p_acc = c5.text_input("Hangi Hesaptan?", value="Maaş Kartı")
-            
             p_desc = st.text_area("Açıklama")
-            
             if st.form_submit_button("Ödemeyi Kaydet"):
                 save_to_db("payments", {
                     "date": datetime.datetime.combine(p_date, datetime.time.min),
                     "amount": p_amount, "category": p_type, 
                     "place": p_place, "account": p_acc, "desc": p_desc
                 })
-        
         st.divider()
         st.subheader("Son Ödemeler")
         if not df_pay.empty:
@@ -394,17 +400,14 @@ elif main_module == "Finans Merkezi":
     with tabs[3]:
         st.header("🤝 Borç Defteri")
         debt_type = st.radio("Yön", ["🟢 Borç Verdim (Alacak)", "🔴 Borç Aldım (Borç)"], horizontal=True)
-        
         with st.form("debt_form_full"):
             d1, d2, d3 = st.columns(3)
             person = d1.text_input("Kişi Adı")
             amount = d2.number_input("Miktar", min_value=0.0)
             curr = d3.selectbox("Birim", ["TL", "USD", "EUR", "Altın"])
-            
             d4, d5 = st.columns(2)
             d_given = d4.date_input("Tarih")
             d_due = d5.date_input("Vade (Geri Ödeme)")
-            
             if st.form_submit_button("Kaydet"):
                 save_to_db("debts", {
                     "type": "Alacak" if "Verdim" in debt_type else "Borç",
@@ -413,41 +416,57 @@ elif main_module == "Finans Merkezi":
                     "due_date": datetime.datetime.combine(d_due, datetime.time.min),
                     "status": "Aktif"
                 })
-
         st.divider()
         df_debt = get_data("debts")
         if not df_debt.empty:
             st.dataframe(df_debt[['type', 'person', 'amount', 'currency', 'due_date_str']], use_container_width=True)
 
-    # --- TAB 5: YATIRIM (AKILLI MODÜL) ---
+    # --- TAB 5: YATIRIM (AKILLI MODÜL - GÜNCELLENDİ) ---
     with tabs[4]:
         st.header("📈 Akıllı Portföy")
-        with st.expander("ℹ️ Sembol Bilgisi"):
-            st.write("Dolar: USDTRY=X | Euro: EURTRY=X | Gram Altın: GLD (veya XAUTRY=X) | BIST: GARAN.IS")
-
+        
         with st.form("invest_smart"):
-            i1, i2, i3 = st.columns(3)
+            i1, i2 = st.columns(2)
             inv_d = i1.date_input("Tarih")
-            inv_sym = i2.text_input("Sembol (Örn: GARAN.IS)", help="Otomatik fiyat için").upper()
-            inv_cat = i3.selectbox("Tür", ["Borsa", "Döviz", "Altın", "Kripto", "Fon"])
+            # 1. Önce Kategori Seçtiriyoruz
+            inv_cat = i2.selectbox("Yatırım Türü", list(SYMBOL_MAP.keys()) + ["Diğer / Manuel Arama"])
             
-            i4, i5, i6 = st.columns(3)
-            inv_n = i4.text_input("Varlık Adı", value="Hisse/Döviz Adı")
-            inv_q = i5.number_input("Adet", min_value=0.0, format="%.4f")
-            inv_c = i6.number_input("Toplam Maliyet (TL)", min_value=0.0)
+            i3, i4 = st.columns(2)
             
+            # 2. Kategoriye Göre Sembol Listesini Getiriyoruz
+            selected_symbol = ""
+            manual_name = ""
+            
+            with i3:
+                if inv_cat != "Diğer / Manuel Arama":
+                    # Sözlükten listeyi oluştur (Sembol - İsim formatında)
+                    options = [f"{k} | {v}" for k, v in SYMBOL_MAP[inv_cat].items()]
+                    selection = st.selectbox("Varlık Seç", options)
+                    selected_symbol = selection.split(" | ")[0] # Sadece sembol kısmını al (THYAO.IS)
+                    manual_name = selection.split(" | ")[1] # İsmi otomatik doldur
+                else:
+                    selected_symbol = st.text_input("Sembol Gir (Yahoo Kodu)", help="Örn: IBM, GOOGL")
+                    manual_name = st.text_input("Varlık Adı", placeholder="Örn: Yabancı Fon")
+
+            with i4:
+                # Kullanıcı adedi ve maliyeti giriyor
+                inv_q = st.number_input("Adet", min_value=0.0, format="%.4f")
+                inv_c = st.number_input("Toplam Maliyet (TL)", min_value=0.0)
+
             if st.form_submit_button("Yatırımı Ekle"):
                 save_to_db("investments", {
                     "date": datetime.datetime.combine(inv_d, datetime.time.min),
-                    "symbol": inv_sym, "category": inv_cat, "asset_name": inv_n,
-                    "quantity": inv_q, "amount": inv_c, "status": "Aktif"
+                    "symbol": selected_symbol, 
+                    "category": inv_cat, 
+                    "asset_name": manual_name,
+                    "quantity": inv_q, 
+                    "amount": inv_c, 
+                    "status": "Aktif"
                 })
 
         st.divider()
         if not df_inv.empty:
             st.subheader("Portföy Analizi")
-            
-            # Tablo verilerini hazırla
             table_data = []
             total_val = 0
             total_cost = 0
@@ -460,7 +479,7 @@ elif main_module == "Finans Merkezi":
                 qty = float(row['quantity'])
                 cost = float(row['amount'])
                 
-                # Eğer anlık fiyat çekilemediyse maliyeti kullan
+                # Anlık değer hesabı
                 cur_val = (cur_p * qty) if cur_p > 0 else cost
                 
                 total_val += cur_val
@@ -468,15 +487,16 @@ elif main_module == "Finans Merkezi":
                 
                 table_data.append({
                     "Varlık": row['asset_name'],
+                    "Sembol": row.get('symbol'),
                     "Adet": qty,
-                    "Maliyet": f"{cost:,.2f}",
-                    "Güncel Değer": f"{cur_val:,.2f}",
+                    "Maliyet (TL)": f"{cost:,.2f}",
+                    "Güncel Fiyat": f"{cur_p:,.2f}",
+                    "Güncel Değer (TL)": f"{cur_val:,.2f}",
                     "Kâr/Zarar": f"{(cur_val - cost):,.2f}"
                 })
             
             p_bar.empty()
             
-            # Metrikler
             k1, k2, k3 = st.columns(3)
             k1.metric("Toplam Maliyet", f"{total_cost:,.2f} TL")
             k2.metric("Güncel Değer", f"{total_val:,.2f} TL")
