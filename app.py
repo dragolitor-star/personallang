@@ -86,7 +86,7 @@ def get_data(collection_name):
         return pd.DataFrame()
         
 def delete_from_db(collection_name, doc_id):
-    """Verilen ID'ye sahip dökümanı siler"""
+    """Verilen ID'ye sahip dökümanı siler (Tekli)"""
     try:
         db.collection(collection_name).document(doc_id).delete()
         st.toast("🗑️ Kayıt Silindi!")
@@ -107,14 +107,12 @@ def calculate_totals(df):
     if df.empty: return 0, 0, 0
     if 'date_str' not in df.columns: return 0, 0, 0
     
-    # Tarih dönüşümü hata verirse atla
     try:
         df['date_dt'] = pd.to_datetime(df['date_str'], errors='coerce')
         today = pd.Timestamp.now().normalize()
         start_week = today - pd.Timedelta(days=today.dayofweek)
         start_month = today.replace(day=1)
         
-        # 'amount' sütununu sayıya çevir
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         
         d_sum = df[df['date_dt'] == today]['amount'].sum()
@@ -146,13 +144,16 @@ if main_module == "Dil Asistanı":
     
     if lang_menu == "Kelime Ekle":
         st.subheader("Manuel Ekleme")
-        c1, c2, c3 = st.columns(3)
-        en = c1.text_input("🇬🇧 İngilizce")
-        de = c2.text_input("🇩🇪 Almanca")
-        tr = c3.text_input("🇹🇷 Türkçe")
-        sent = st.text_area("Örnek Cümle")
-        if st.button("Kaydet"):
-            save_to_db("vocabulary", {"en": en, "de": de, "tr": tr, "sentence_source": sent, "learned_count": 0})
+        # Form kullanımı
+        with st.form("word_add_form", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
+            en = c1.text_input("🇬🇧 İngilizce")
+            de = c2.text_input("🇩🇪 Almanca")
+            tr = c3.text_input("🇹🇷 Türkçe")
+            sent = st.text_area("Örnek Cümle")
+            if st.form_submit_button("Kaydet"):
+                save_to_db("vocabulary", {"en": en, "de": de, "tr": tr, "sentence_source": sent, "learned_count": 0})
+                st.rerun()
 
     elif lang_menu == "Excel'den Yükle":
         st.subheader("Toplu Yükleme")
@@ -202,8 +203,6 @@ if main_module == "Dil Asistanı":
                 df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
             
             st.markdown("### Kelimeler")
-            # Listeyi sayfalama veya basit liste şeklinde göstermek daha güvenli
-            # Data Editor burada da kullanılabilir ama ses butonu için custom yapı daha iyi
             for index, row in df.iterrows():
                 with st.container():
                     col1, col2, col3, col4 = st.columns([2, 2, 4, 1])
@@ -212,10 +211,6 @@ if main_module == "Dil Asistanı":
                     col3.write(f"🇹🇷 {row.get('tr', '-')}")
                     if col4.button("Sil", key=f"del_voc_{row['id']}"):
                         delete_from_db("vocabulary", row['id'])
-                    
-                    # Dinleme Butonları (Opsiyonel satır içi)
-                    # c_a, c_b = st.columns(2)
-                    # if row.get('en') and c_a.button("🔊 EN", key=f"l_en_{row['id']}"): speak(row['en'], 'en')
                     st.divider()
 
     elif lang_menu == "Günlük Test":
@@ -270,13 +265,15 @@ elif main_module == "Fiziksel Takip":
 
     if phys_menu == "İdman Takibi":
         st.subheader("🏋️‍♂️ İdman Kaydı")
-        with st.form("workout_form"):
+        # Form kullanımı
+        with st.form("workout_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             w_type = c1.selectbox("Tür", ["Fitness", "Kardiyo", "Yüzme", "Yoga"])
             dur = c2.number_input("Süre (dk)", 10, 300, 60)
             note = st.text_area("Notlar")
             if st.form_submit_button("Kaydet"):
                 save_to_db("workouts", {"type": w_type, "duration": dur, "notes": note, "date": datetime.date.today()})
+                st.rerun()
         
         st.divider()
         df = get_data("workouts")
@@ -292,13 +289,14 @@ elif main_module == "Fiziksel Takip":
 
     elif phys_menu == "Ölçü Takibi":
         st.subheader("📏 Vücut Analizi")
-        with st.form("body"):
+        with st.form("body_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             w = c1.number_input("Kilo", format="%.1f")
             f = c2.number_input("Yağ %", format="%.1f")
             m = c3.number_input("Kas %", format="%.1f")
             if st.form_submit_button("Kaydet"):
                 save_to_db("measurements", {"weight": w, "fat": f, "muscle": m, "date": datetime.date.today()})
+                st.rerun()
         st.divider()
         df = get_data("measurements")
         if not df.empty:
@@ -319,12 +317,13 @@ elif main_module == "Fiziksel Takip":
 
     elif phys_menu == "Öğün Takibi":
         st.subheader("🥗 Beslenme")
-        with st.form("meal_form"):
+        with st.form("meal_form", clear_on_submit=True):
             c1, c2 = st.columns([1,2])
             cal = c1.number_input("Kalori", 0, 2000)
             meal = c2.text_input("İçerik")
             if st.form_submit_button("Ekle"):
                 save_to_db("meals", {"calories": cal, "content": meal, "date": datetime.date.today()})
+                st.rerun()
         
         st.divider()
         df = get_data("meals")
@@ -370,7 +369,6 @@ elif main_module == "Finans Merkezi":
                 st.metric("Bu Ay Ödeme", f"{m_pay:,.2f} TL")
         with c3:
             if not df_inv.empty:
-                # amount sütununu sayıya çevir
                 inv_total = pd.to_numeric(df_inv['amount'], errors='coerce').sum()
                 st.metric("Toplam Yatırım", f"{inv_total:,.2f} TL")
         
@@ -386,21 +384,22 @@ elif main_module == "Finans Merkezi":
     with tabs[1]:
         st.header("Harcama Yönetimi")
         
-        # Giriş Alanı (Session State ile Temizleme)
-        with st.container(border=True):
+        # st.form ile girişleri sararak anlık yenilenmeyi engelliyoruz
+        with st.form("expense_input_form", clear_on_submit=True):
             st.subheader("Yeni Harcama")
             c1, c2, c3 = st.columns(3)
-            date_in = c1.date_input("Tarih", datetime.date.today(), key="e_date")
-            place_in = c2.text_input("Yer", key="e_place")
-            amount_in = c3.number_input("Tutar (TL)", min_value=0.0, step=10.0, key="e_amount")
+            date_in = c1.date_input("Tarih", datetime.date.today())
+            place_in = c2.text_input("Yer")
+            amount_in = c3.number_input("Tutar (TL)", min_value=0.0, step=10.0)
             
             c4, c5, c6 = st.columns(3)
-            cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Diğer"], key="e_cat")
-            method_in = c5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"], key="e_method")
-            nec_in = c6.selectbox("Gerekli mi?", ["Evet", "Hayır"], key="e_nec")
-            desc_in = st.text_area("Açıklama", key="e_desc")
+            cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Diğer"])
+            method_in = c5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"])
+            nec_in = c6.selectbox("Gerekli mi?", ["Evet", "Hayır"])
+            desc_in = st.text_area("Açıklama")
             
-            if st.button("Harcamayı Kaydet", type="primary"):
+            # Kaydet butonu formun gönderimini sağlar
+            if st.form_submit_button("Harcamayı Kaydet"):
                 save_to_db("expenses", {
                     "date": datetime.datetime.combine(date_in, datetime.time.min),
                     "place": place_in, "amount": amount_in, "category": cat_in,
@@ -412,18 +411,15 @@ elif main_module == "Finans Merkezi":
         st.subheader("Harcama Kayıtları")
         
         if not df_exp.empty:
-            # HATA ÇÖZÜMÜ İÇİN VERİ HAZIRLIĞI
-            # Dataframe'i data_editor'e vermeden önce tipleri kesinleştiriyoruz
-            
-            # 1. Gerekli sütunları belirle
+            # 1. Gerekli sütunları belirle ve eksikse tamamla
             cols = ['Sil', 'date_str', 'place', 'amount', 'category', 'method', 'necessity', 'desc', 'id']
-            # Sütun eksikse ekle
             for col in cols:
                 if col not in df_exp.columns and col != 'Sil': df_exp[col] = None
             
-            # 2. Tipleri Zorla (Casting)
+            # 2. Tipleri Zorla (StreamlitAPIException Çözümü)
             clean_df = df_exp[cols].copy()
             clean_df['Sil'] = clean_df['Sil'].astype(bool)
+            # Tarih boşsa bugünü ata veya boş bırak (Str çevirimi)
             clean_df['date_str'] = pd.to_datetime(clean_df['date_str'], errors='coerce').dt.date
             clean_df['place'] = clean_df['place'].astype(str)
             clean_df['amount'] = pd.to_numeric(clean_df['amount'], errors='coerce').fillna(0.0)
@@ -444,7 +440,7 @@ elif main_module == "Finans Merkezi":
                     "method": "Ödeme Şekli",
                     "necessity": st.column_config.SelectboxColumn("Gerekli?", options=["Evet", "Hayır"]),
                     "desc": "Açıklama",
-                    "id": None # Gizle
+                    "id": None 
                 },
                 hide_index=True,
                 num_rows="dynamic",
@@ -471,7 +467,6 @@ elif main_module == "Finans Merkezi":
                             "necessity": str(row['necessity']),
                             "desc": str(row['desc'])
                         }
-                        # Hata olmaması için None kontrolü
                         update_data = {k: v for k, v in update_data.items() if v is not None}
                         db.collection("expenses").document(row['id']).update(update_data)
                 st.success("Güncellendi!")
@@ -482,19 +477,19 @@ elif main_module == "Finans Merkezi":
     with tabs[2]:
         st.header("Ödeme Takibi")
         
-        with st.container(border=True):
+        with st.form("payment_input_form", clear_on_submit=True):
             st.subheader("Ödeme Ekle")
             c1, c2, c3 = st.columns(3)
-            p_date = c1.date_input("Tarih", key="p_date")
-            p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0, key="p_amt")
-            p_place = c3.text_input("Yer / Kurum", key="p_place")
+            p_date = c1.date_input("Tarih")
+            p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0)
+            p_place = c3.text_input("Yer / Kurum")
             
             c4, c5 = st.columns(2)
-            p_type = c4.selectbox("Tür", ["Kredi Kartı", "Fatura", "Kredi", "Diğer"], key="p_type")
-            p_acc = c5.text_input("Hesap", value="Maaş Kartı", key="p_acc")
-            p_desc = st.text_area("Açıklama", key="p_desc")
+            p_type = c4.selectbox("Tür", ["Kredi Kartı", "Fatura", "Kredi", "Diğer"])
+            p_acc = c5.text_input("Hesap", value="Maaş Kartı")
+            p_desc = st.text_area("Açıklama")
             
-            if st.button("Ödemeyi Kaydet", type="primary"):
+            if st.form_submit_button("Ödemeyi Kaydet"):
                 save_to_db("payments", {
                     "date": datetime.datetime.combine(p_date, datetime.time.min),
                     "amount": p_amount, "category": p_type, 
@@ -504,7 +499,6 @@ elif main_module == "Finans Merkezi":
 
         st.divider()
         if not df_pay.empty:
-            # VERİ HAZIRLIĞI
             cols_p = ['Sil', 'date_str', 'category', 'amount', 'place', 'account', 'desc', 'id']
             for col in cols_p:
                  if col not in df_pay.columns and col != 'Sil': df_pay[col] = None
@@ -553,17 +547,17 @@ elif main_module == "Finans Merkezi":
         st.header("Borç Defteri")
         debt_mode = st.radio("Yön", ["Verdim (Alacak)", "Aldım (Borç)"], horizontal=True)
         
-        with st.container(border=True):
+        with st.form("debt_input_form", clear_on_submit=True):
             d1, d2, d3 = st.columns(3)
-            d_person = d1.text_input("Kişi", key="d_per")
-            d_amount = d2.number_input("Miktar", min_value=0.0, key="d_amt")
-            d_curr = d3.selectbox("Birim", ["TL", "USD", "EUR", "Altın"], key="d_cur")
+            d_person = d1.text_input("Kişi")
+            d_amount = d2.number_input("Miktar", min_value=0.0)
+            d_curr = d3.selectbox("Birim", ["TL", "USD", "EUR", "Altın"])
             
             d4, d5 = st.columns(2)
-            d_date = d4.date_input("Verilme Tarihi", key="d_date")
-            d_due = d5.date_input("Vade Tarihi", key="d_due")
+            d_date = d4.date_input("Verilme Tarihi")
+            d_due = d5.date_input("Vade Tarihi")
             
-            if st.button("Borç Kaydet", type="primary"):
+            if st.form_submit_button("Borç Kaydet"):
                 save_to_db("debts", {
                     "type": "Alacak" if "Verdim" in debt_mode else "Borç",
                     "person": d_person, "amount": d_amount, "currency": d_curr,
@@ -620,53 +614,58 @@ elif main_module == "Finans Merkezi":
                 time.sleep(1)
                 st.rerun()
 
-    # --- TAB 5: YATIRIM (YENİLENMİŞ) ---
+    # --- TAB 5: YATIRIM ---
     with tabs[4]:
         st.header("📈 Akıllı Portföy")
         
-        # Form dışı giriş (Anlık güncelleme için)
+        # NOT: Yatırımda Kategori değişimi listeyi güncellediği için
+        # Kategori Seçimi FORM DIŞINDA, geri kalanı FORM İÇİNDE olacak.
+        
         c_i1, c_i2 = st.columns(2)
-        inv_d = c_i1.date_input("Tarih", datetime.date.today())
         
+        # Kategori Seçimi (Anlık tepki verir)
         category_options = list(SYMBOL_MAP.keys()) + ["Diğer / Manuel Arama"]
-        inv_cat = c_i2.selectbox("Yatırım Türü", category_options)
+        inv_cat = c_i1.selectbox("Yatırım Türü", category_options)
         
-        c_i3, c_i4 = st.columns(2)
-        selected_symbol = ""
-        manual_name = ""
-        
-        with c_i3:
+        # Geri kalan her şey form içinde (Gereksiz yenilenmeyi önlemek için)
+        with st.form("inv_form", clear_on_submit=True):
+            c_f1, c_f2 = st.columns(2)
+            inv_d = c_f1.date_input("Tarih", datetime.date.today())
+            
+            selected_symbol = ""
+            manual_name = ""
+            
+            # Form içinde olmasına rağmen, dışarıdaki 'inv_cat' değerini okuyabiliriz.
             if inv_cat == "Diğer / Manuel Arama":
-                selected_symbol = st.text_input("Sembol Gir (Yahoo Kodu)", help="Örn: IBM").strip()
+                selected_symbol = c_f2.text_input("Sembol Gir (Yahoo Kodu)", help="Örn: IBM").strip()
                 manual_name = st.text_input("Varlık Adı", placeholder="Örn: Yabancı Fon")
             else:
                 current_map = SYMBOL_MAP.get(inv_cat, {})
                 if current_map:
                     asset_options = [f"{k} | {v}" for k, v in current_map.items()]
-                    selection = st.selectbox("Varlık Seç", asset_options)
+                    selection = c_f2.selectbox("Varlık Seç", asset_options)
                     if selection:
                         selected_symbol = selection.split(" | ")[0]
                         manual_name = selection.split(" | ")[1]
-        
-        with c_i4:
-            inv_q = st.number_input("Adet", min_value=0.0, format="%.4f")
-            inv_c = st.number_input("Toplam Maliyet (TL)", min_value=0.0)
 
-        if st.button("Yatırımı Ekle", type="primary"):
-            if inv_cat != "Diğer / Manuel Arama" and not selected_symbol:
-                st.error("Lütfen bir varlık seçin.")
-            else:
-                save_to_db("investments", {
-                    "date": datetime.datetime.combine(inv_d, datetime.time.min),
-                    "symbol": selected_symbol, 
-                    "category": inv_cat, 
-                    "asset_name": manual_name,
-                    "quantity": inv_q, 
-                    "amount": inv_c, 
-                    "status": "Aktif"
-                })
-                time.sleep(0.5)
-                st.rerun()
+            c_num1, c_num2 = st.columns(2)
+            inv_q = c_num1.number_input("Adet", min_value=0.0, format="%.4f")
+            inv_c = c_num2.number_input("Toplam Maliyet (TL)", min_value=0.0)
+
+            if st.form_submit_button("Yatırımı Ekle"):
+                if inv_cat != "Diğer / Manuel Arama" and not selected_symbol:
+                    st.error("Lütfen bir varlık seçin.")
+                else:
+                    save_to_db("investments", {
+                        "date": datetime.datetime.combine(inv_d, datetime.time.min),
+                        "symbol": selected_symbol, 
+                        "category": inv_cat, 
+                        "asset_name": manual_name,
+                        "quantity": inv_q, 
+                        "amount": inv_c, 
+                        "status": "Aktif"
+                    })
+                    st.rerun()
 
         st.divider()
         
@@ -681,7 +680,6 @@ elif main_module == "Finans Merkezi":
             for idx, row in df_inv.iterrows():
                 p_bar.progress((idx + 1) / len(df_inv))
                 
-                # Sayısal değerlere çevir
                 try:
                     qty = float(row.get('quantity', 0))
                     cost = float(row.get('amount', 0))
@@ -689,9 +687,7 @@ elif main_module == "Finans Merkezi":
                 
                 cur_p = get_asset_current_price(row.get('symbol')) if row.get('symbol') else 0
                 
-                # Fiyat çekilemezse maliyeti kullan
                 cur_val = (cur_p * qty) if cur_p > 0 else cost
-                
                 total_val += cur_val
                 total_cost += cost
                 
@@ -713,7 +709,6 @@ elif main_module == "Finans Merkezi":
             diff = total_val - total_cost
             k3.metric("Kâr/Zarar", f"{diff:,.2f} TL", delta=f"{diff:,.2f}")
             
-            # YATIRIM TABLOSU (Data Editor)
             inv_df = pd.DataFrame(table_data)
             edited_inv = st.data_editor(
                 inv_df,
@@ -729,7 +724,6 @@ elif main_module == "Finans Merkezi":
                 key="inv_editor"
             )
             
-            # Silme butonu (Yatırım için)
             to_del_i = edited_inv[edited_inv['Sil'] == True]['id'].tolist()
             if to_del_i:
                  if st.button(f"Seçili {len(to_del_i)} Yatırımı Sil"):
