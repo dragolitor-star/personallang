@@ -4,3 +4,4 @@ gTTS
 pandas
 openpyxl
 matplotlib
+yfinance
