@@ -326,10 +326,17 @@ elif main_module == "Fiziksel Takip":
         
         with c2:
             df_meas = get_data("measurements")
+            # HATA DÜZELTME: Veri çekildikten sonra hemen tarih dönüşümü yapılmalı
             if not df_meas.empty:
-                df_meas['date'] = pd.to_datetime(df_meas['date_str'])
-                df_meas = df_meas.sort_values('date')
-                st.line_chart(df_meas, x='date', y='weight')
+                if 'date_str' in df_meas.columns:
+                    df_meas['date'] = pd.to_datetime(df_meas['date_str'], errors='coerce')
+                    df_meas = df_meas.sort_values('date')
+                    st.line_chart(df_meas, x='date', y='weight')
+                else:
+                    df_meas['date'] = pd.to_datetime([]) # Boş tarih sütunu oluştur
+            else:
+                # Boş dataframe olsa bile 'date' sütunu olmalı ki aşağıda patlamasın
+                df_meas = pd.DataFrame(columns=['date', 'weight'])
 
         st.divider()
         st.subheader(f"İdman Takip Listesi ({datetime.datetime.now().strftime('%B %Y')})")
@@ -339,6 +346,7 @@ elif main_module == "Fiziksel Takip":
             df_logs['date'] = pd.to_datetime(df_logs['date_str'])
             current_month = datetime.datetime.now().month
             current_year = datetime.datetime.now().year
+            
             days_in_month = calendar.monthrange(current_year, current_month)[1]
             cols = [str(d) for d in range(1, days_in_month + 1)]
             rows = ["Aksiyon / Gün", "Kilo"]
@@ -350,10 +358,12 @@ elif main_module == "Fiziksel Takip":
                 existing = dashboard_df.at["Aksiyon / Gün", day]
                 dashboard_df.at["Aksiyon / Gün", day] = f"{existing} ✅ {row.get('main_focus', 'İdman')}".strip()
 
-            month_meas = df_meas[(df_meas['date'].dt.month == current_month) & (df_meas['date'].dt.year == current_year)]
-            for _, row in month_meas.iterrows():
-                day = str(row['date'].day)
-                dashboard_df.at["Kilo", day] = f"{row['weight']} kg"
+            # HATA DÜZELTME: df_meas boş olsa bile 'date' sütunu artık var, hata vermez
+            if not df_meas.empty and 'date' in df_meas.columns:
+                month_meas = df_meas[(df_meas['date'].dt.month == current_month) & (df_meas['date'].dt.year == current_year)]
+                for _, row in month_meas.iterrows():
+                    day = str(row['date'].day)
+                    dashboard_df.at["Kilo", day] = f"{row['weight']} kg"
 
             st.dataframe(dashboard_df, use_container_width=True)
 
@@ -373,14 +383,27 @@ elif main_module == "Fiziksel Takip":
                                     st.markdown(f"#### 🏋️‍♂️ {ex['name']}")
                                     sets_data = []
                                     for s_idx, s in enumerate(ex.get('sets', [])):
-                                        set_type = "DROP SET 🔻" if s.get('is_dropset') else f"Set {s_idx + 1}"
-                                        sets_data.append({
-                                            "Set Tipi": set_type,
-                                            "Ağırlık": f"{s.get('weight')} KG",
-                                            "Tekrar": s.get('reps'),
-                                            "ROM": s.get('rom'),
-                                            "Zorlanma": s.get('difficulty')
-                                        })
+                                        # KARDİYO MU AĞIRLIK MI AYRIMI
+                                        if "cardio_duration" in s:
+                                            # Kardiyo seti
+                                            sets_data.append({
+                                                "Tip": "Kardiyo",
+                                                "Süre": f"{s.get('cardio_duration')} dk",
+                                                "Mesafe": f"{s.get('distance')} km",
+                                                "Hız": s.get('speed'),
+                                                "Eğim": s.get('incline'),
+                                                "Kalori": s.get('calories')
+                                            })
+                                        else:
+                                            # Ağırlık seti
+                                            set_type = "DROP SET 🔻" if s.get('is_dropset') else f"Set {s_idx + 1}"
+                                            sets_data.append({
+                                                "Set Tipi": set_type,
+                                                "Ağırlık": f"{s.get('weight')} KG",
+                                                "Tekrar": s.get('reps'),
+                                                "ROM": s.get('rom'),
+                                                "Zorlanma": s.get('difficulty')
+                                            })
                                     if sets_data: st.table(pd.DataFrame(sets_data))
                                     st.divider()
                     if st.button("Bu İdman Kaydını Sil", key=f"del_log_{row['id']}"):
@@ -398,22 +421,18 @@ elif main_module == "Fiziksel Takip":
 
         lw = st.session_state.live_workout
 
-        # 1. İDMAN BAŞLATMA EKRANI (SEÇMELİ)
+        # 1. İDMAN BAŞLATMA EKRANI
         if not lw["active"]:
             st.subheader("Bugünkü İdman Planı")
             
-            # 4 Kutu Seçim
             c1, c2, c3, c4 = st.columns(4)
-            
             body_parts = ["Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Yok"]
             main_part = c1.selectbox("Ana Bölge", body_parts, index=0)
-            side_part = c2.selectbox("Yan Bölge", body_parts, index=6) # Default Yok
-            
+            side_part = c2.selectbox("Yan Bölge", body_parts, index=6)
             abs_opt = c3.selectbox("Karın", ["Yok", "Var"], index=0)
             cardio_opt = c4.selectbox("Kardiyo", ["Yok", "Var"], index=0)
             
             if st.button("🚀 İdmanı Başlat", type="primary"):
-                # Seçimleri String'e çevir
                 focus_parts = []
                 if main_part != "Yok": focus_parts.append(main_part)
                 if side_part != "Yok": focus_parts.append(side_part)
@@ -446,10 +465,7 @@ elif main_module == "Fiziksel Takip":
                     st.success(f"🟢 Şu an çalışılan: **{lw['current_section_name']}** ({str(sec_elapsed).split('.')[0]})")
                     
                     st.markdown("### Hareket Ekle")
-                    
-                    # Güncel listeyi çek ve filtrele
                     current_section = lw["current_section_name"]
-                    # Eğer bölümde tanımlı hareket varsa onları getir, yoksa genel liste
                     exercise_options = FULL_EXERCISE_LIST.get(current_section, ["Diğer"]) + ["Diğer"]
                     
                     selected_exercise = st.selectbox("Hareket Seç", exercise_options)
@@ -459,26 +475,50 @@ elif main_module == "Fiziksel Takip":
                     if 'current_sets' not in st.session_state:
                         st.session_state.current_sets = []
 
-                    with st.form("set_adder"):
-                        c1, c2, c3 = st.columns(3)
-                        s_weight = c1.number_input("Ağırlık (KG)", min_value=0.0, step=2.5)
-                        s_reps = c2.number_input("Tekrar", min_value=0, step=1)
-                        s_rom = c3.selectbox("ROM", ["Tam", "Yarım", "Kontrollü"])
-                        
-                        c4, c5 = st.columns(2)
-                        s_rpe = c4.selectbox("Zorlanma (RPE)", ["Düşük", "Orta", "Yüksek", "Tükeniş"])
-                        is_drop = c5.checkbox("Bu bir Drop Set mi?")
-                        
-                        if st.form_submit_button("Seti Ekle"):
-                            st.session_state.current_sets.append({
-                                "weight": s_weight, "reps": s_reps, 
-                                "rom": s_rom, "difficulty": s_rpe,
-                                "is_dropset": is_drop
-                            })
-                            st.toast("Set Eklendi")
+                    # --- KARDİYO / AĞIRLIK AYRIMI ---
+                    if current_section == "Kardiyo":
+                        # KARDİYO İÇİN ÖZEL FORM
+                        with st.form("cardio_adder"):
+                            c1, c2, c3 = st.columns(3)
+                            c_dur = c1.number_input("Süre (dk)", min_value=0.0, step=1.0)
+                            c_dist = c2.number_input("Mesafe (km)", min_value=0.0, step=0.1)
+                            c_cal = c3.number_input("Kalori", min_value=0, step=10)
+                            
+                            c4, c5 = st.columns(2)
+                            c_inc = c4.number_input("Eğim", min_value=0.0, step=0.5)
+                            c_spd = c5.number_input("Hız", min_value=0.0, step=0.5)
+                            
+                            if st.form_submit_button("Kardiyo Ekle"):
+                                st.session_state.current_sets.append({
+                                    "cardio_duration": c_dur,
+                                    "distance": c_dist,
+                                    "calories": c_cal,
+                                    "incline": c_inc,
+                                    "speed": c_spd
+                                })
+                                st.toast("Kardiyo verisi eklendi")
+                    else:
+                        # STANDART AĞIRLIK İÇİN FORM
+                        with st.form("set_adder"):
+                            c1, c2, c3 = st.columns(3)
+                            s_weight = c1.number_input("Ağırlık (KG)", min_value=0.0, step=2.5)
+                            s_reps = c2.number_input("Tekrar", min_value=0, step=1)
+                            s_rom = c3.selectbox("ROM", ["Tam", "Yarım", "Kontrollü"])
+                            
+                            c4, c5 = st.columns(2)
+                            s_rpe = c4.selectbox("Zorlanma (RPE)", ["Düşük", "Orta", "Yüksek", "Tükeniş"])
+                            is_drop = c5.checkbox("Bu bir Drop Set mi?")
+                            
+                            if st.form_submit_button("Seti Ekle"):
+                                st.session_state.current_sets.append({
+                                    "weight": s_weight, "reps": s_reps, 
+                                    "rom": s_rom, "difficulty": s_rpe,
+                                    "is_dropset": is_drop
+                                })
+                                st.toast("Set Eklendi")
 
                     if st.session_state.current_sets:
-                        st.write("Eklenen Setler:")
+                        st.write("Eklenen Setler/Veriler:")
                         st.dataframe(pd.DataFrame(st.session_state.current_sets), use_container_width=True)
 
                     if st.button("✅ Hareketi Bölüme Kaydet"):
@@ -492,12 +532,12 @@ elif main_module == "Fiziksel Takip":
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.warning("Hareket adı veya set girilmedi.")
+                            st.warning("Hareket adı veya veri girilmedi.")
 
                     if lw["exercises_temp"]:
                         with st.expander(f"Bu Bölümdeki Hareketler ({len(lw['exercises_temp'])})"):
                             for e in lw["exercises_temp"]:
-                                st.write(f"- {e['name']} ({len(e['sets'])} set)")
+                                st.write(f"- {e['name']} ({len(e['sets'])} veri)")
 
                     st.divider()
                     if st.button("⏹️ Bölümü Bitir ve Kaydet"):
@@ -526,7 +566,9 @@ elif main_module == "Fiziksel Takip":
                     diff_score = 0
                     for ex in sec['exercises']:
                         for s in ex['sets']:
-                            if s['difficulty'] in ["Yüksek", "Tükeniş"]: diff_score += 1
+                            # Ağırlık antrenmanıysa zorluk seviyesine bak
+                            if 'difficulty' in s and s['difficulty'] in ["Yüksek", "Tükeniş"]: 
+                                diff_score += 1
                     if diff_score > max_difficulty:
                         max_difficulty = diff_score
                         hardest_part = sec['name']
@@ -549,7 +591,7 @@ elif main_module == "Fiziksel Takip":
                 time.sleep(3)
                 st.rerun()
 
-    # --- SEKME 3: HAREKET TANIMLA (YENİ) ---
+    # --- SEKME 3: HAREKET TANIMLA (AYNI) ---
     with tabs[2]:
         st.header("⚙️ Yeni Hareket Ekle")
         st.info("Listede olmayan hareketleri buraya ekleyerek 'Canlı İdman' modunda kullanabilirsiniz.")
@@ -569,7 +611,6 @@ elif main_module == "Fiziksel Takip":
         
         st.divider()
         st.subheader("Eklenen Özel Hareketler")
-        # Özel hareketleri listeleme
         try:
             c_docs = db.collection("custom_exercises").stream()
             c_data = [{"Bölge": doc.to_dict().get('region'), "Hareket": doc.to_dict().get('name'), "id": doc.id} for doc in c_docs]
