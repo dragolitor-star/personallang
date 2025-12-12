@@ -95,6 +95,19 @@ def delete_from_db(collection_name, doc_id):
     except Exception as e:
         st.error(f"Silme hatası: {e}")
 
+def update_liability_balance(liability_id, amount_paid):
+    """Ödeme yapıldığında ilgili borç bakiyesini düşer"""
+    try:
+        doc_ref = db.collection("liabilities").document(liability_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            current_bal = float(doc.to_dict().get('remaining_amount', 0.0))
+            new_bal = current_bal - amount_paid
+            doc_ref.update({"remaining_amount": new_bal})
+            st.toast(f"📉 Borç bakiyesi güncellendi! Yeni kalan: {new_bal:,.2f} TL")
+    except Exception as e:
+        st.error(f"Bakiye güncelleme hatası: {e}")
+
 def speak(text, lang='en'):
     try:
         tts = gTTS(text=text, lang=lang)
@@ -355,6 +368,7 @@ elif main_module == "Finans Merkezi":
     df_pay = get_data("payments")
     df_inv = get_data("investments")
     df_debt = get_data("debts")
+    df_lia = get_data("liabilities") # Yeni Yükümlülükler
 
     # --- TAB 1: GENEL BAKIŞ ---
     with tabs[0]:
@@ -369,10 +383,12 @@ elif main_module == "Finans Merkezi":
             if not df_pay.empty:
                 _, _, m_pay = calculate_totals(df_pay)
                 st.metric("Bu Ay Ödeme", f"{m_pay:,.2f} TL")
+            else: st.write("-")
         with c3:
-            if not df_inv.empty:
-                inv_total = pd.to_numeric(df_inv['amount'], errors='coerce').sum()
-                st.metric("Toplam Yatırım", f"{inv_total:,.2f} TL")
+            total_liabilities = 0
+            if not df_lia.empty:
+                total_liabilities = pd.to_numeric(df_lia['remaining_amount'], errors='coerce').sum()
+            st.metric("Toplam Sabit Borç", f"{total_liabilities:,.2f} TL")
         
         st.divider()
         if not df_exp.empty:
@@ -386,7 +402,6 @@ elif main_module == "Finans Merkezi":
     with tabs[1]:
         st.header("Harcama Yönetimi")
         
-        # Giriş Alanı (Session State ile Temizleme)
         with st.form("expense_input_form", clear_on_submit=True):
             st.subheader("Yeni Harcama")
             c1, c2, c3 = st.columns(3)
@@ -395,7 +410,6 @@ elif main_module == "Finans Merkezi":
             amount_in = c3.number_input("Tutar (TL)", min_value=0.0, step=10.0)
             
             c4, c5, c6 = st.columns(3)
-            # Harcama Türleri Güncellendi
             cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "MISIR Seyahat Harcaması", "Diğer"])
             method_in = c5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"])
             nec_in = c6.selectbox("Gerekli mi?", ["Evet", "Hayır"])
@@ -434,7 +448,6 @@ elif main_module == "Finans Merkezi":
                     "date_str": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD"),
                     "place": "Yer",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
-                    # Tablo içi düzenlemede de yeni kategoriler eklendi
                     "category": st.column_config.SelectboxColumn("Kategori", options=["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "MISIR Seyahat Harcaması", "Diğer"]),
                     "method": "Ödeme Şekli",
                     "necessity": st.column_config.SelectboxColumn("Gerekli?", options=["Evet", "Hayır"]),
@@ -453,7 +466,6 @@ elif main_module == "Finans Merkezi":
             
             if st.button("Tablodaki Değişiklikleri Kaydet (Harcama)"):
                 for index, row in edited_df.iterrows():
-                    # Var olan kayıtları güncelle
                     if row['id']: 
                         update_data = {
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
@@ -467,7 +479,6 @@ elif main_module == "Finans Merkezi":
                         }
                         update_data = {k: v for k, v in update_data.items() if v is not None}
                         db.collection("expenses").document(row['id']).update(update_data)
-                    # Yeni eklenen satırlar (ID'si olmayanlar)
                     else:
                          save_to_db("expenses", {
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
@@ -478,7 +489,6 @@ elif main_module == "Finans Merkezi":
                             "necessity": str(row['necessity']),
                             "desc": str(row['desc'])
                         })
-
                 st.success("Güncellendi!")
                 time.sleep(1)
                 st.rerun()
@@ -487,27 +497,42 @@ elif main_module == "Finans Merkezi":
     with tabs[2]:
         st.header("Ödeme Takibi")
         
+        # Yükümlülükleri (Sabit Borçları) Getir - Dropdown için
+        liability_options = {"Yok": None}
+        if not df_lia.empty:
+            for idx, row in df_lia.iterrows():
+                label = f"{row['name']} (Kalan: {row['remaining_amount']:.2f} TL)"
+                liability_options[label] = row['id']
+
         with st.form("payment_input_form", clear_on_submit=True):
             st.subheader("Ödeme Ekle")
             c1, c2, c3 = st.columns(3)
             p_date = c1.date_input("Tarih")
             p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0)
-            # İsim Güncellendi
             p_place = c3.text_input("Ödeme Yapılan Kurum")
             
             c4, c5 = st.columns(2)
-            # Tür Güncellendi: Kredi Kartı -> Kredi Kartı Borcu
             p_type = c4.selectbox("Tür", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
-            # İsim Güncellendi: Hesap -> Ödeme Aracı
             p_acc = c5.text_input("Ödeme Aracı", value="Maaş Kartı")
+            
+            # Borçtan Düşme Özelliği
+            p_link = st.selectbox("Bu Ödeme Hangi Borçtan Düşülsün?", list(liability_options.keys()))
+            
             p_desc = st.text_area("Açıklama")
             
             if st.form_submit_button("Ödemeyi Kaydet"):
+                # Ödemeyi Kaydet
                 save_to_db("payments", {
                     "date": datetime.datetime.combine(p_date, datetime.time.min),
                     "amount": p_amount, "category": p_type, 
                     "place": p_place, "account": p_acc, "desc": p_desc
                 })
+                
+                # Eğer bir borç seçildiyse bakiyeyi güncelle
+                selected_lia_id = liability_options[p_link]
+                if selected_lia_id:
+                    update_liability_balance(selected_lia_id, p_amount)
+                
                 st.rerun()
 
         st.divider()
@@ -537,7 +562,6 @@ elif main_module == "Finans Merkezi":
                     "id": None
                 },
                 hide_index=True,
-                # Dinamik Satır Ekleme Özelliği Eklendi
                 num_rows="dynamic",
                 key="pay_editor"
             )
@@ -549,7 +573,6 @@ elif main_module == "Finans Merkezi":
             
             if st.button("Tablodaki Değişiklikleri Kaydet (Ödeme)"):
                 for index, row in edited_df_p.iterrows():
-                    # Var olanı güncelle
                     if row['id']:
                         db.collection("payments").document(row['id']).update({
                             "place": str(row['place']), 
@@ -560,7 +583,6 @@ elif main_module == "Finans Merkezi":
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
                             "date_str": str(row['date_str'])
                         })
-                    # Yeni ekleneni kaydet
                     else:
                         save_to_db("payments", {
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
@@ -577,6 +599,49 @@ elif main_module == "Finans Merkezi":
     # --- TAB 4: BORÇ / ALACAK ---
     with tabs[3]:
         st.header("Borç Defteri")
+        
+        # --- YENİ BÖLÜM: KALAN BORÇ TAKİBİ (SABİT BORÇLAR) ---
+        st.subheader("🏦 Kalan Sabit Borç Bakiyeleri (Kredi, KYK vb.)")
+        
+        with st.form("liability_form", clear_on_submit=True):
+            l1, l2 = st.columns(2)
+            l_name = l1.text_input("Borç Adı (Örn: KYK, Garanti Kredi)")
+            l_amount = l2.number_input("Kalan Toplam Tutar", min_value=0.0)
+            if st.form_submit_button("Borç Hesabı Ekle"):
+                save_to_db("liabilities", {"name": l_name, "remaining_amount": l_amount})
+                st.rerun()
+        
+        if not df_lia.empty:
+            cols_l = ['Sil', 'name', 'remaining_amount', 'id']
+            for col in cols_l:
+                if col not in df_lia.columns and col != 'Sil': df_lia[col] = None
+            
+            clean_df_l = df_lia[cols_l].copy()
+            clean_df_l['Sil'] = clean_df_l['Sil'].astype(bool)
+            clean_df_l['name'] = clean_df_l['name'].astype(str)
+            clean_df_l['remaining_amount'] = pd.to_numeric(clean_df_l['remaining_amount'], errors='coerce').fillna(0.0)
+            
+            edited_lia = st.data_editor(
+                clean_df_l,
+                column_config={
+                    "Sil": st.column_config.CheckboxColumn(default=False),
+                    "name": "Borç Adı",
+                    "remaining_amount": st.column_config.NumberColumn("Kalan Bakiye", format="%.2f TL"),
+                    "id": None
+                },
+                hide_index=True,
+                key="lia_editor"
+            )
+            
+            to_del_l = edited_lia[edited_lia['Sil'] == True]['id'].tolist()
+            if to_del_l:
+                if st.button(f"Seçili Borç Hesabını Sil"):
+                    delete_multiple_docs("liabilities", to_del_l)
+
+        st.divider()
+        
+        # --- ESKİ BÖLÜM: ŞAHIS BORÇ/ALACAK ---
+        st.subheader("🤝 Şahıs Borç/Alacak Kayıtları")
         debt_mode = st.radio("Yön", ["Verdim (Alacak)", "Aldım (Borç)"], horizontal=True)
         
         with st.form("debt_input_form", clear_on_submit=True):
@@ -589,7 +654,7 @@ elif main_module == "Finans Merkezi":
             d_date = d4.date_input("Verilme Tarihi")
             d_due = d5.date_input("Vade Tarihi")
             
-            if st.form_submit_button("Borç Kaydet"):
+            if st.form_submit_button("Kayıt Ekle"):
                 save_to_db("debts", {
                     "type": "Alacak" if "Verdim" in debt_mode else "Borç",
                     "person": d_person, "amount": d_amount, "currency": d_curr,
@@ -599,7 +664,6 @@ elif main_module == "Finans Merkezi":
                 })
                 st.rerun()
 
-        st.divider()
         if not df_debt.empty:
             cols_d = ['Sil', 'type', 'person', 'amount', 'currency', 'date_str', 'due_date_str', 'status', 'id']
             for col in cols_d:
