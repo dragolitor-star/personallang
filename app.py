@@ -701,10 +701,8 @@ elif main_module == "Alışkanlık Takibi":
     current_year = datetime.datetime.now().year
     month_name = datetime.datetime.now().strftime('%B %Y')
     
-    # Ay ve Yıl Bilgisi
     st.header(f"Takip Listesi: {month_name}")
     
-    # 1. Alışkanlık Listesi
     habits_list = [
         "Saat 6:00'da Uyanmak", "1 Saat Ekransız Zaman Geçirmek", 
         "Sabahtan Günün Planını Yapmak", "Sabahtan Haberleri Dinlemek",
@@ -714,38 +712,31 @@ elif main_module == "Alışkanlık Takibi":
         "Sosyal Medya Zamanını 1 Saatin Altında Tutmak", "Her Sabah Tartılmak"
     ]
     
-    # 2. Uyku Listesi
     sleep_list = ["8 Saat", "7 Saat", "6 Saat", "5 Saat", "4 Saat", "3 Saat", "2 Saat", "1 Saat", "1 Saatten Az"]
     
-    # Ayın günleri
     days_in_month = calendar.monthrange(current_year, current_month)[1]
     cols = [str(d) for d in range(1, days_in_month + 1)]
     
-    # Veritabanından Veri Çekme
     current_data = get_monthly_habit_data(current_year, current_month)
     db_habits = current_data.get("habits", {})
     db_sleep = current_data.get("sleep", {})
     
-    # --- TABLO 1: ALIŞKANLIKLAR ---
     st.subheader("Günlük Rutin")
     habit_df = pd.DataFrame(index=habits_list, columns=cols)
-    # Veritabanındaki veriyi tabloya işle
     for h in habits_list:
         if h in db_habits:
             for day_idx, val in enumerate(db_habits[h]):
                 if day_idx < len(cols):
                     habit_df.iat[habits_list.index(h), day_idx] = val
         else:
-            habit_df.loc[h] = False # Varsayılan False
+            habit_df.loc[h] = False
 
     edited_habits = st.data_editor(habit_df, use_container_width=True, key="habit_editor")
     
     st.divider()
     
-    # --- TABLO 2: UYKU SÜRESİ ---
     st.subheader("Uyku Süresi / Gün")
     sleep_df = pd.DataFrame(index=sleep_list, columns=cols)
-    # Veritabanındaki veriyi tabloya işle
     for s in sleep_list:
         if s in db_sleep:
             for day_idx, val in enumerate(db_sleep[s]):
@@ -756,10 +747,35 @@ elif main_module == "Alışkanlık Takibi":
 
     edited_sleep = st.data_editor(sleep_df, use_container_width=True, key="sleep_editor")
     
+    # --- UYKU GRAFİĞİ (YENİ EKLENDİ) ---
+    st.subheader("Uyku Süresi Analizi")
+    sleep_chart_data = []
+    sleep_value_map = {
+        "8 Saat": 8, "7 Saat": 7, "6 Saat": 6, "5 Saat": 5, 
+        "4 Saat": 4, "3 Saat": 3, "2 Saat": 2, "1 Saat": 1, "1 Saatten Az": 0.5
+    }
+    
+    for day in cols:
+        sleep_val = 0
+        for label in sleep_list:
+            if edited_sleep.at[label, day] == True:
+                sleep_val = sleep_value_map.get(label, 0)
+                break
+        
+        if sleep_val > 0:
+             try:
+                 date_obj = datetime.date(current_year, current_month, int(day))
+                 sleep_chart_data.append({"Date": date_obj, "Saat": sleep_val})
+             except: pass
+             
+    if sleep_chart_data:
+        chart_df = pd.DataFrame(sleep_chart_data).set_index("Date")
+        st.line_chart(chart_df)
+    else:
+        st.info("Grafik için veri giriniz.")
+
     # --- KAYDETME ---
     if st.button("Tüm Değişiklikleri Kaydet", type="primary"):
-        # Dataframe'leri sözlüğe çevir (DB için)
-        # Her satırı {gün_index: bool} listesine çeviriyoruz
         habits_to_save = {}
         for idx, row in edited_habits.iterrows():
             habits_to_save[idx] = row.tolist()
