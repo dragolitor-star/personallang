@@ -178,31 +178,23 @@ def get_asset_current_price(symbol):
     except: return 0.0
 
 def update_daily_activity_from_table(date_str, field, value):
-    """Günlük aktivite tablosunu günceller (Şınav, Muscle Up vb.)"""
+    """Günlük aktivite tablosunu günceller"""
     try:
-        # Tarih ile sorgula
         docs = db.collection("daily_activities").where("date_str", "==", date_str).stream()
         doc_list = list(docs)
-        
         data = {field: value, "date_str": date_str}
-        
         if doc_list:
-            # Varsa güncelle
-            doc_id = doc_list[0].id
-            db.collection("daily_activities").document(doc_id).update({field: value})
+            db.collection("daily_activities").document(doc_list[0].id).update({field: value})
         else:
-            # Yoksa oluştur
             data["created_at"] = firestore.SERVER_TIMESTAMP
             db.collection("daily_activities").add(data)
-    except Exception as e:
-        print(f"Hata: {e}")
+    except: pass
 
 def update_measurement_from_table(date_str, weight_val):
     """Tablodan gelen kilo bilgisini günceller"""
     try:
         docs = db.collection("measurements").where("date_str", "==", date_str).stream()
         doc_list = list(docs)
-        
         if doc_list:
             db.collection("measurements").document(doc_list[0].id).update({"weight": weight_val})
         else:
@@ -213,9 +205,26 @@ def update_measurement_from_table(date_str, weight_val):
             })
     except: pass
 
+def get_monthly_habit_data(year, month):
+    """Belirli bir ayın alışkanlık verilerini çeker"""
+    doc_id = f"{year}_{month}"
+    doc = db.collection("habit_logs").document(doc_id).get()
+    if doc.exists:
+        return doc.to_dict()
+    return {}
+
+def update_monthly_habit_data(year, month, habit_data, sleep_data):
+    """Ayın alışkanlık verilerini kaydeder"""
+    doc_id = f"{year}_{month}"
+    db.collection("habit_logs").document(doc_id).set({
+        "habits": habit_data,
+        "sleep": sleep_data,
+        "updated_at": firestore.SERVER_TIMESTAMP
+    }, merge=True)
+
 # --- 5. ARAYÜZ VE MODÜLLER ---
 st.sidebar.title("🚀 Life OS")
-main_module = st.sidebar.selectbox("Modül Seç", ["Dil Asistanı", "Fiziksel Takip", "Finans Merkezi"])
+main_module = st.sidebar.selectbox("Modül Seç", ["Dil Asistanı", "Fiziksel Takip", "Alışkanlık Takibi", "Finans Merkezi"])
 
 # ==========================================
 # MODÜL 1: DİL ASİSTANI
@@ -338,21 +347,18 @@ if main_module == "Dil Asistanı":
                 if st.button("Tekrar"): new_quiz()
 
 # ==========================================
-# MODÜL 2: FİZİKSEL TAKİP (GÜNCELLENMİŞ)
+# MODÜL 2: FİZİKSEL TAKİP
 # ==========================================
 elif main_module == "Fiziksel Takip":
     st.title("💪 Fiziksel Gelişim Paneli")
     
-    # Hareket listesini güncelle
     FULL_EXERCISE_LIST = get_full_exercise_map()
     
     tabs = st.tabs(["📅 Fiziksel Aktivite Takip Tablosu", "⚡ Canlı İdman Modu", "⚙️ Hareket Tanımla"])
 
-    # --- SEKME 1: GEÇMİŞ VE ANALİZ ---
     with tabs[0]:
         st.header("Fiziksel Aktivite Takip Tablosu")
         
-        # Grafik
         df_meas = get_data("measurements")
         if not df_meas.empty:
             if 'date_str' in df_meas.columns:
@@ -367,20 +373,17 @@ elif main_module == "Fiziksel Takip":
         st.divider()
         st.subheader(f"Aylık Takip Listesi ({datetime.datetime.now().strftime('%B %Y')})")
         
-        # VERİ ÇEKME
         df_logs = get_data("workout_logs")
-        df_daily = get_data("daily_activities") # Yeni günlük aktiviteler
+        df_daily = get_data("daily_activities")
         
         current_month = datetime.datetime.now().month
         current_year = datetime.datetime.now().year
         days_in_month = calendar.monthrange(current_year, current_month)[1]
         
-        # TABLO YAPISI (Excel benzeri)
         cols = [str(d) for d in range(1, days_in_month + 1)]
         rows = ["İdman (Ana Odak)", "Kilo", "15 Şınav", "10 Muscle Up", "10 Barfiks"]
         dashboard_df = pd.DataFrame(index=rows, columns=cols).fillna("")
         
-        # 1. İdmanları Doldur
         if not df_logs.empty and 'date_str' in df_logs.columns:
             df_logs['date'] = pd.to_datetime(df_logs['date_str'])
             month_logs = df_logs[(df_logs['date'].dt.month == current_month) & (df_logs['date'].dt.year == current_year)]
@@ -389,53 +392,40 @@ elif main_module == "Fiziksel Takip":
                 existing = dashboard_df.at["İdman (Ana Odak)", day]
                 dashboard_df.at["İdman (Ana Odak)", day] = f"{existing} ✅ {row.get('main_focus', '')}".strip()
 
-        # 2. Kiloları Doldur
-        if not df_meas.empty:
+        if not df_meas.empty and 'date' in df_meas.columns:
             month_meas = df_meas[(df_meas['date'].dt.month == current_month) & (df_meas['date'].dt.year == current_year)]
             for _, row in month_meas.iterrows():
                 day = str(row['date'].day)
                 dashboard_df.at["Kilo", day] = str(row['weight'])
 
-        # 3. Günlük Aktiviteleri Doldur (Şınav, Muscle Up, Barfiks)
         if not df_daily.empty and 'date_str' in df_daily.columns:
             df_daily['date'] = pd.to_datetime(df_daily['date_str'])
             month_daily = df_daily[(df_daily['date'].dt.month == current_month) & (df_daily['date'].dt.year == current_year)]
-            
             for _, row in month_daily.iterrows():
                 day = str(row['date'].day)
                 if pd.notna(row.get('pushups')): dashboard_df.at["15 Şınav", day] = str(row.get('pushups'))
                 if pd.notna(row.get('muscleups')): dashboard_df.at["10 Muscle Up", day] = str(row.get('muscleups'))
                 if pd.notna(row.get('pullups')): dashboard_df.at["10 Barfiks", day] = str(row.get('pullups'))
 
-        # TABLOYU GÖSTER (EDITABLE)
         edited_dashboard = st.data_editor(dashboard_df, use_container_width=True, key="phys_table")
         
-        # KAYDETME BUTONU VE MANTIĞI
         if st.button("Tablodaki Değişiklikleri Kaydet", type="primary"):
-            # Değişiklikleri bulup veritabanına yazalım
-            # Sütunları (Günleri) gez
             for day in cols:
                 try:
-                    # Tarih stringini oluştur (YYYY-MM-DD)
                     date_obj = datetime.date(current_year, current_month, int(day))
                     date_str = date_obj.strftime("%Y-%m-%d")
                     
-                    # 1. Kilo Kaydı
                     w_val = edited_dashboard.at["Kilo", day]
                     if w_val and str(w_val).strip() != "":
                         update_measurement_from_table(date_str, float(w_val))
                     
-                    # 2. Günlük Aktiviteler (Tek seferde kontrol)
                     push_val = edited_dashboard.at["15 Şınav", day]
                     musc_val = edited_dashboard.at["10 Muscle Up", day]
                     pull_val = edited_dashboard.at["10 Barfiks", day]
                     
-                    # Eğer herhangi bir aktivite girilmişse kaydet/güncelle
                     if push_val or musc_val or pull_val:
-                        # Mevcut kaydı bul veya yeni oluştur
                         docs = db.collection("daily_activities").where("date_str", "==", date_str).stream()
                         doc_list = list(docs)
-                        
                         data_update = {}
                         if push_val: data_update["pushups"] = push_val
                         if musc_val: data_update["muscleups"] = musc_val
@@ -448,10 +438,7 @@ elif main_module == "Fiziksel Takip":
                                 data_update["date_str"] = date_str
                                 data_update["created_at"] = firestore.SERVER_TIMESTAMP
                                 db.collection("daily_activities").add(data_update)
-                                
-                except Exception as e:
-                    pass # Boş hücreler veya format hatalarında devam et
-            
+                except: pass
             st.success("Tablo başarıyla güncellendi!")
             time.sleep(1)
             st.rerun()
@@ -495,7 +482,6 @@ elif main_module == "Fiziksel Takip":
                     if st.button("Bu İdman Kaydını Sil", key=f"del_log_{row['id']}"):
                         delete_from_db("workout_logs", row['id'])
 
-    # --- SEKME 2: CANLI İDMAN MODU ---
     with tabs[1]:
         st.header("⚡ Canlı İdman Paneli")
         
@@ -507,10 +493,8 @@ elif main_module == "Fiziksel Takip":
 
         lw = st.session_state.live_workout
 
-        # 1. İDMAN BAŞLATMA EKRANI
         if not lw["active"]:
             st.subheader("Bugünkü İdman Planı")
-            
             c1, c2, c3, c4 = st.columns(4)
             body_parts = ["Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Yok"]
             main_part = c1.selectbox("Ana Bölge", body_parts, index=0)
@@ -561,14 +545,12 @@ elif main_module == "Fiziksel Takip":
                     if 'current_sets' not in st.session_state:
                         st.session_state.current_sets = []
 
-                    # --- KARDİYO / AĞIRLIK AYRIMI ---
                     if current_section == "Kardiyo":
                         with st.form("cardio_adder"):
                             c1, c2, c3 = st.columns(3)
                             c_dur = c1.number_input("Süre (dk)", min_value=0.0, step=1.0)
                             c_dist = c2.number_input("Mesafe (km)", min_value=0.0, step=0.1)
                             c_cal = c3.number_input("Kalori", min_value=0, step=10)
-                            
                             c4, c5 = st.columns(2)
                             c_inc = c4.number_input("Eğim", min_value=0.0, step=0.5)
                             c_spd = c5.number_input("Hız", min_value=0.0, step=0.5)
@@ -588,7 +570,6 @@ elif main_module == "Fiziksel Takip":
                             s_weight = c1.number_input("Ağırlık (KG)", min_value=0.0, step=2.5)
                             s_reps = c2.number_input("Tekrar", min_value=0, step=1)
                             s_rom = c3.selectbox("ROM", ["Tam", "Yarım", "Kontrollü"])
-                            
                             c4, c5 = st.columns(2)
                             s_rpe = c4.selectbox("Zorlanma (RPE)", ["Düşük", "Orta", "Yüksek", "Tükeniş"])
                             is_drop = c5.checkbox("Bu bir Drop Set mi?")
@@ -675,7 +656,6 @@ elif main_module == "Fiziksel Takip":
                 time.sleep(3)
                 st.rerun()
 
-    # --- SEKME 3: HAREKET TANIMLA (AYNI) ---
     with tabs[2]:
         st.header("⚙️ Yeni Hareket Ekle")
         st.info("Listede olmayan hareketleri buraya ekleyerek 'Canlı İdman' modunda kullanabilirsiniz.")
@@ -712,7 +692,89 @@ elif main_module == "Fiziksel Takip":
             st.write("Veri çekilemedi.")
 
 # ==========================================
-# MODÜL 3: FİNANS MERKEZİ (FULL + GÜNCEL)
+# MODÜL 3: ALIŞKANLIK TAKİBİ (YENİ)
+# ==========================================
+elif main_module == "Alışkanlık Takibi":
+    st.title("🌱 Alışkanlık Takip Paneli")
+    
+    current_month = datetime.datetime.now().month
+    current_year = datetime.datetime.now().year
+    month_name = datetime.datetime.now().strftime('%B %Y')
+    
+    # Ay ve Yıl Bilgisi
+    st.header(f"Takip Listesi: {month_name}")
+    
+    # 1. Alışkanlık Listesi
+    habits_list = [
+        "Saat 6:00'da Uyanmak", "1 Saat Ekransız Zaman Geçirmek", 
+        "Sabahtan Günün Planını Yapmak", "Sabahtan Haberleri Dinlemek",
+        "10 Sayfa Kitap Okumak", "4.5 Litre Su İçmek", 
+        "Beslenme Düzenini Tam Takip Etmek", "Antrenman Düzenini Tam Takip Etmek",
+        "Kişisel Hedef ve İş Hedeflerini Düzenlemek", "N.F",
+        "Sosyal Medya Zamanını 1 Saatin Altında Tutmak", "Her Sabah Tartılmak"
+    ]
+    
+    # 2. Uyku Listesi
+    sleep_list = ["8 Saat", "7 Saat", "6 Saat", "5 Saat", "4 Saat", "3 Saat", "2 Saat", "1 Saat", "1 Saatten Az"]
+    
+    # Ayın günleri
+    days_in_month = calendar.monthrange(current_year, current_month)[1]
+    cols = [str(d) for d in range(1, days_in_month + 1)]
+    
+    # Veritabanından Veri Çekme
+    current_data = get_monthly_habit_data(current_year, current_month)
+    db_habits = current_data.get("habits", {})
+    db_sleep = current_data.get("sleep", {})
+    
+    # --- TABLO 1: ALIŞKANLIKLAR ---
+    st.subheader("Günlük Rutin")
+    habit_df = pd.DataFrame(index=habits_list, columns=cols)
+    # Veritabanındaki veriyi tabloya işle
+    for h in habits_list:
+        if h in db_habits:
+            for day_idx, val in enumerate(db_habits[h]):
+                if day_idx < len(cols):
+                    habit_df.iat[habits_list.index(h), day_idx] = val
+        else:
+            habit_df.loc[h] = False # Varsayılan False
+
+    edited_habits = st.data_editor(habit_df, use_container_width=True, key="habit_editor")
+    
+    st.divider()
+    
+    # --- TABLO 2: UYKU SÜRESİ ---
+    st.subheader("Uyku Süresi / Gün")
+    sleep_df = pd.DataFrame(index=sleep_list, columns=cols)
+    # Veritabanındaki veriyi tabloya işle
+    for s in sleep_list:
+        if s in db_sleep:
+            for day_idx, val in enumerate(db_sleep[s]):
+                if day_idx < len(cols):
+                    sleep_df.iat[sleep_list.index(s), day_idx] = val
+        else:
+            sleep_df.loc[s] = False
+
+    edited_sleep = st.data_editor(sleep_df, use_container_width=True, key="sleep_editor")
+    
+    # --- KAYDETME ---
+    if st.button("Tüm Değişiklikleri Kaydet", type="primary"):
+        # Dataframe'leri sözlüğe çevir (DB için)
+        # Her satırı {gün_index: bool} listesine çeviriyoruz
+        habits_to_save = {}
+        for idx, row in edited_habits.iterrows():
+            habits_to_save[idx] = row.tolist()
+            
+        sleep_to_save = {}
+        for idx, row in edited_sleep.iterrows():
+            sleep_to_save[idx] = row.tolist()
+            
+        update_monthly_habit_data(current_year, current_month, habits_to_save, sleep_to_save)
+        st.success("Alışkanlıklar başarıyla kaydedildi!")
+        time.sleep(1)
+        st.rerun()
+
+# ==========================================
+# MODÜL 4: FİNANS MERKEZİ (FULL + GÜNCEL)
 # ==========================================
 elif main_module == "Finans Merkezi":
     st.title("💰 Finansal Yönetim Paneli")
