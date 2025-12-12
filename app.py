@@ -8,6 +8,7 @@ import datetime
 import matplotlib.pyplot as plt
 import yfinance as yf
 import time
+import calendar
 
 # --- 1. AYARLAR VE BAĞLANTI ---
 st.set_page_config(page_title="My Life OS", page_icon="🧠", layout="wide")
@@ -52,7 +53,19 @@ SYMBOL_MAP = {
     }
 }
 
-# --- 3. YARDIMCI FONKSİYONLAR ---
+# --- 3. EGZERSİZ LİSTESİ (Örnekler) ---
+EXERCISE_LIST = {
+    "Göğüs": ["Bench Press", "Incline Dumbell Press", "Cable Chest Fly", "Push Up", "Dips"],
+    "Sırt": ["Pull Up", "Lat Pulldown", "Barbell Row", "Deadlift", "Face Pull"],
+    "Bacak": ["Squat", "Leg Press", "Leg Extension", "Leg Curl", "Calf Raise"],
+    "Omuz": ["Overhead Press", "Lateral Raise", "Front Raise", "Reverse Pec Deck"],
+    "Ön Kol": ["Barbell Curl", "Dumbell Curl", "Hammer Curl", "Preacher Curl"],
+    "Arka Kol": ["Tricep Pushdown", "Skullcrusher", "Overhead Extension"],
+    "Karın": ["Crunch", "Plank", "Leg Raise", "Russian Twist"],
+    "Kardiyo": ["Koşu Bandı", "Bisiklet", "Eliptik", "Yüzme", "İnterval Koşu"]
+}
+
+# --- 4. YARDIMCI FONKSİYONLAR ---
 
 def save_to_db(collection_name, data):
     """Veriyi kaydeder"""
@@ -79,7 +92,7 @@ def get_data(collection_name):
         for doc in docs:
             item = doc.to_dict()
             item['id'] = doc.id
-            item['Sil'] = False # Checkbox için varsayılan değer
+            item['Sil'] = False 
             items.append(item)
         return pd.DataFrame(items)
     except:
@@ -148,12 +161,12 @@ def get_asset_current_price(symbol):
         return 0.0
     except: return 0.0
 
-# --- 4. ARAYÜZ ---
+# --- 5. ARAYÜZ VE MODÜLLER ---
 st.sidebar.title("🚀 Life OS")
 main_module = st.sidebar.selectbox("Modül Seç", ["Dil Asistanı", "Fiziksel Takip", "Finans Merkezi"])
 
 # ==========================================
-# MODÜL 1: DİL ASİSTANI
+# MODÜL 1: DİL ASİSTANI (AYNI)
 # ==========================================
 if main_module == "Dil Asistanı":
     st.title("🇩🇪 🇬🇧 Dil Asistanı")
@@ -273,102 +286,302 @@ if main_module == "Dil Asistanı":
                 if st.button("Tekrar"): new_quiz()
 
 # ==========================================
-# MODÜL 2: FİZİKSEL TAKİP
+# MODÜL 2: FİZİKSEL TAKİP (YENİLENMİŞ)
 # ==========================================
 elif main_module == "Fiziksel Takip":
-    st.title("💪 Fiziksel Gelişim")
-    phys_menu = st.sidebar.radio("Alt Menü", ["İdman Takibi", "Ölçü Takibi", "Öğün Takibi"])
+    st.title("💪 Fiziksel Gelişim Paneli")
+    
+    # Yeni Sekme Yapısı
+    tabs = st.tabs(["📅 İdman Geçmişi & Analiz", "⚡ Canlı İdman Modu"])
 
-    if phys_menu == "İdman Takibi":
-        st.subheader("🏋️‍♂️ İdman Kaydı")
-        with st.form("workout_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            w_type = c1.selectbox("Tür", ["Fitness", "Kardiyo", "Yüzme", "Yoga"])
-            dur = c2.number_input("Süre (dk)", 10, 300, 60)
-            note = st.text_area("Notlar")
-            if st.form_submit_button("Kaydet"):
-                save_to_db("workouts", {"type": w_type, "duration": dur, "notes": note, "date": datetime.date.today()})
-                st.rerun()
+    # --- SEKME 1: GEÇMİŞ VE ANALİZ ---
+    with tabs[0]:
+        st.header("İdman Takip ve Kilo Analizi")
         
-        st.divider()
-        df = get_data("workouts")
-        if not df.empty:
-            st.write("Geçmiş İdmanlar")
-            for idx, row in df.iterrows():
-                cl1, cl2, cl3, cl4 = st.columns([2, 2, 4, 1])
-                cl1.write(f"📅 {row.get('date_str', '-')}")
-                cl2.write(f"🏃 {row['type']} ({row['duration']} dk)")
-                cl3.write(f"📝 {row['notes']}")
-                if cl4.button("Sil", key=f"del_wrk_{row['id']}"):
-                    delete_from_db("workouts", row['id'])
-
-    elif phys_menu == "Ölçü Takibi":
-        st.subheader("📏 Vücut Analizi")
-        with st.form("body_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns(3)
-            w = c1.number_input("Kilo", format="%.1f")
-            f = c2.number_input("Yağ %", format="%.1f")
-            m = c3.number_input("Kas %", format="%.1f")
-            if st.form_submit_button("Kaydet"):
-                save_to_db("measurements", {"weight": w, "fat": f, "muscle": m, "date": datetime.date.today()})
-                st.rerun()
-        st.divider()
-        df = get_data("measurements")
-        if not df.empty:
-            df['date'] = pd.to_datetime(df['date_str'], errors='coerce')
-            df['weight'] = pd.to_numeric(df['weight'], errors='coerce')
-            df = df.dropna(subset=['date', 'weight']).sort_values('date')
-            
-            st.line_chart(df, x='date', y='weight')
-            
-            with st.expander("Kayıtları Düzenle"):
-                for idx, row in df.iterrows():
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    c1.write(f"{row['date_str']}")
-                    c2.write(f"{row['weight']} kg")
-                    if c3.button("Sil", key=f"del_meas_{row['id']}"):
-                        delete_from_db("measurements", row['id'])
-
-    elif phys_menu == "Öğün Takibi":
-        st.subheader("🥗 Beslenme")
-        with st.form("meal_form", clear_on_submit=True):
-            c1, c2 = st.columns([1,2])
-            cal = c1.number_input("Kalori", 0, 2000)
-            meal = c2.text_input("İçerik")
-            if st.form_submit_button("Ekle"):
-                save_to_db("meals", {"calories": cal, "content": meal, "date": datetime.date.today()})
-                st.rerun()
+        # 1. KİLO GİRİŞİ VE GRAFİĞİ
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            with st.form("daily_weight"):
+                w_in = st.number_input("Bugünkü Kilo (kg)", format="%.1f")
+                if st.form_submit_button("Kilo Kaydet"):
+                    save_to_db("measurements", {"weight": w_in, "date": datetime.date.today()})
+                    st.rerun()
         
+        with c2:
+            df_meas = get_data("measurements")
+            if not df_meas.empty:
+                df_meas['date'] = pd.to_datetime(df_meas['date_str'])
+                df_meas = df_meas.sort_values('date')
+                st.line_chart(df_meas, x='date', y='weight')
+
         st.divider()
-        df = get_data("meals")
-        if not df.empty:
-            df['calories'] = pd.to_numeric(df['calories'], errors='coerce').fillna(0)
-            tod = str(datetime.date.today())
-            total = df[df['date_str'] == tod]['calories'].sum()
-            st.metric("Bugün Alınan", f"{total} kcal")
+
+        # 2. AYLIK TAKİP LİSTESİ (EXCEL GÖRÜNÜMÜ)
+        st.subheader(f"İdman Takip Listesi ({datetime.datetime.now().strftime('%B %Y')})")
+        
+        # Verileri Hazırla
+        df_logs = get_data("workout_logs")
+        if not df_logs.empty:
+            df_logs['date'] = pd.to_datetime(df_logs['date_str'])
+            current_month = datetime.datetime.now().month
+            current_year = datetime.datetime.now().year
             
-            for idx, row in df.iterrows():
-                c1, c2, c3, c4 = st.columns([2, 2, 4, 1])
-                c1.write(row.get('date_str', '-'))
-                c2.write(f"{row['calories']} kcal")
-                c3.write(row['content'])
-                if c4.button("Sil", key=f"del_meal_{row['id']}"):
-                    delete_from_db("meals", row['id'])
+            # Ayın günlerini oluştur (1-31)
+            days_in_month = calendar.monthrange(current_year, current_month)[1]
+            cols = [str(d) for d in range(1, days_in_month + 1)]
+            
+            # Boş dataframe oluştur
+            rows = ["Aksiyon / Gün", "Kilo"]
+            dashboard_df = pd.DataFrame(index=rows, columns=cols)
+            dashboard_df = dashboard_df.fillna("")
+            
+            # Verileri doldur
+            # 1. İdmanlar (Aksiyon)
+            month_logs = df_logs[(df_logs['date'].dt.month == current_month) & (df_logs['date'].dt.year == current_year)]
+            for _, row in month_logs.iterrows():
+                day = str(row['date'].day)
+                # İdman varsa X işareti veya Bölge adı koyalım
+                existing = dashboard_df.at["Aksiyon / Gün", day]
+                dashboard_df.at["Aksiyon / Gün", day] = f"{existing} ✅ {row.get('main_focus', 'İdman')}".strip()
+
+            # 2. Kilo
+            month_meas = df_meas[(df_meas['date'].dt.month == current_month) & (df_meas['date'].dt.year == current_year)]
+            for _, row in month_meas.iterrows():
+                day = str(row['date'].day)
+                dashboard_df.at["Kilo", day] = f"{row['weight']} kg"
+
+            st.dataframe(dashboard_df, use_container_width=True)
+
+        st.divider()
+
+        # 3. DETAYLI İDMAN GEÇMİŞİ (İÇ İÇE SEKME YAPISI)
+        st.subheader("Geçmiş İdman Detayları")
+        if not df_logs.empty:
+            for idx, row in df_logs.iterrows():
+                # ÜST SEKME: TARİH - BÖLGE
+                log_title = f"📅 {row['date_str']} - {row.get('main_focus', 'Genel')} (Toplam: {row.get('total_duration', 0)} dk)"
+                with st.expander(log_title):
+                    sections = row.get('sections', [])
+                    
+                    # ALT SEKMELER: İDMAN BÖLÜMLERİ
+                    if sections:
+                        sec_tabs = st.tabs([f"{s['name']} ({s.get('duration',0)} dk)" for s in sections])
+                        
+                        for i, section in enumerate(sections):
+                            with sec_tabs[i]:
+                                # HAREKETLER VE SETLER
+                                exercises = section.get('exercises', [])
+                                for ex in exercises:
+                                    st.markdown(f"#### 🏋️‍♂️ {ex['name']}")
+                                    
+                                    # Set Tablosu Oluştur
+                                    sets_data = []
+                                    for s_idx, s in enumerate(ex.get('sets', [])):
+                                        set_type = "DROP SET 🔻" if s.get('is_dropset') else f"Set {s_idx + 1}"
+                                        # Drop set ise biraz girintili gösterim mantığı (Tabloda zor, isimlendirme ile çözelim)
+                                        sets_data.append({
+                                            "Set Tipi": set_type,
+                                            "Ağırlık": f"{s.get('weight')} KG",
+                                            "Tekrar": s.get('reps'),
+                                            "ROM": s.get('rom'),
+                                            "Zorlanma": s.get('difficulty')
+                                        })
+                                    
+                                    if sets_data:
+                                        st.table(pd.DataFrame(sets_data))
+                                    st.divider()
+                                    
+                    # Silme Butonu
+                    if st.button("Bu İdman Kaydını Sil", key=f"del_log_{row['id']}"):
+                        delete_from_db("workout_logs", row['id'])
+
+    # --- SEKME 2: CANLI İDMAN MODU ---
+    with tabs[1]:
+        st.header("⚡ Canlı İdman Paneli")
+        
+        # Session State Başlatma
+        if 'live_workout' not in st.session_state:
+            st.session_state.live_workout = {
+                "active": False,
+                "start_time": None,
+                "sections": [],
+                "current_section_start": None,
+                "exercises_temp": [] 
+            }
+
+        lw = st.session_state.live_workout
+
+        # 1. İDMAN BAŞLATMA
+        if not lw["active"]:
+            focus_area = st.text_input("Bugün Hangi Bölgeler Çalışılacak?", placeholder="Örn: Göğüs - Ön Kol")
+            if st.button("🚀 İdmanı Başlat", type="primary"):
+                if focus_area:
+                    lw["active"] = True
+                    lw["start_time"] = datetime.datetime.now()
+                    lw["main_focus"] = focus_area
+                    st.rerun()
+                else:
+                    st.warning("Lütfen çalışılacak bölgeyi yazın.")
+        
+        else:
+            # İDMAN DEVAM EDİYOR
+            elapsed = datetime.datetime.now() - lw["start_time"]
+            st.info(f"⏱️ İdman Süresi: {str(elapsed).split('.')[0]} | Odak: {lw['main_focus']}")
+            
+            # BÖLÜM YÖNETİMİ
+            with st.container(border=True):
+                st.subheader("Bölüm Ekle / Yönet")
+                
+                # Yeni Bölüm Başlatma
+                if lw["current_section_start"] is None:
+                    sec_name = st.selectbox("Bölüm Seç", ["Isınma", "Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Karın", "Kardiyo"])
+                    if st.button("▶️ Bölümü Başlat"):
+                        lw["current_section_start"] = datetime.datetime.now()
+                        lw["current_section_name"] = sec_name
+                        lw["exercises_temp"] = [] # O bölümün hareketleri için liste
+                        st.rerun()
+                else:
+                    # BÖLÜM İÇİNDEYİZ
+                    sec_elapsed = datetime.datetime.now() - lw["current_section_start"]
+                    st.success(f"🟢 Şu an çalışılan: **{lw['current_section_name']}** ({str(sec_elapsed).split('.')[0]})")
+                    
+                    # HAREKET EKLEME
+                    st.markdown("### Hareket Ekle")
+                    
+                    # Egzersiz Seçimi (Bölüme göre filtreli)
+                    exercise_options = EXERCISE_LIST.get(lw["current_section_name"], ["Diğer"]) + ["Diğer"]
+                    selected_exercise = st.selectbox("Hareket Seç", exercise_options)
+                    if selected_exercise == "Diğer":
+                        selected_exercise = st.text_input("Hareket Adını Yaz")
+
+                    # Set Ekleme Formu
+                    if 'current_sets' not in st.session_state:
+                        st.session_state.current_sets = []
+
+                    with st.form("set_adder"):
+                        c1, c2, c3 = st.columns(3)
+                        s_weight = c1.number_input("Ağırlık (KG)", min_value=0.0, step=2.5)
+                        s_reps = c2.number_input("Tekrar", min_value=0, step=1)
+                        s_rom = c3.selectbox("ROM", ["Tam", "Yarım", "Kontrollü"])
+                        
+                        c4, c5 = st.columns(2)
+                        s_rpe = c4.selectbox("Zorlanma (RPE)", ["Düşük", "Orta", "Yüksek", "Tükeniş"])
+                        
+                        # Drop Set Mantığı: Eğer listede zaten set varsa, son sete drop eklenebilir mi?
+                        # Basitlik için: Kullanıcı "Bu Drop Settir" derse, bir önceki sete bağlanır.
+                        is_drop = c5.checkbox("Bu bir Drop Set mi? (Önceki setin devamı)")
+                        
+                        if st.form_submit_button("Seti Ekle"):
+                            st.session_state.current_sets.append({
+                                "weight": s_weight, "reps": s_reps, 
+                                "rom": s_rom, "difficulty": s_rpe,
+                                "is_dropset": is_drop
+                            })
+                            st.toast("Set Eklendi")
+
+                    # Eklenen Setleri Göster
+                    if st.session_state.current_sets:
+                        st.write("Eklenen Setler:")
+                        temp_df = pd.DataFrame(st.session_state.current_sets)
+                        st.dataframe(temp_df, use_container_width=True)
+
+                    # Hareketi Kaydet
+                    if st.button("✅ Hareketi Bölüme Kaydet"):
+                        if selected_exercise and st.session_state.current_sets:
+                            lw["exercises_temp"].append({
+                                "name": selected_exercise,
+                                "sets": st.session_state.current_sets
+                            })
+                            st.session_state.current_sets = [] # Setleri temizle
+                            st.success(f"{selected_exercise} kaydedildi!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning("Hareket adı veya set girilmedi.")
+
+                    # Bölümde Kaydedilen Hareketler
+                    if lw["exercises_temp"]:
+                        with st.expander(f"Bu Bölümdeki Hareketler ({len(lw['exercises_temp'])})"):
+                            for e in lw["exercises_temp"]:
+                                st.write(f"- {e['name']} ({len(e['sets'])} set)")
+
+                    st.divider()
+                    
+                    # BÖLÜMÜ BİTİR
+                    if st.button("⏹️ Bölümü Bitir ve Kaydet"):
+                        end_time = datetime.datetime.now()
+                        duration_mins = int((end_time - lw["current_section_start"]).total_seconds() / 60)
+                        
+                        # Bölümü ana listeye ekle
+                        lw["sections"].append({
+                            "name": lw["current_section_name"],
+                            "duration": duration_mins,
+                            "exercises": lw["exercises_temp"]
+                        })
+                        
+                        # State Temizliği
+                        lw["current_section_start"] = None
+                        lw["exercises_temp"] = []
+                        st.rerun()
+
+            # İDMAN ÖZETİ VE BİTİRME
+            st.divider()
+            if lw["sections"]:
+                st.subheader("Tamamlanan Bölümler")
+                for s in lw["sections"]:
+                    st.write(f"✔️ {s['name']} ({s['duration']} dk)")
+
+            if st.button("🏁 İDMANI TAMAMLA VE KAYDET", type="primary"):
+                total_dur = int((datetime.datetime.now() - lw["start_time"]).total_seconds() / 60)
+                
+                # En zorlanılan bölgeyi bul (Basit mantık: En çok 'Yüksek'/'Tükeniş' olan bölüm)
+                hardest_part = "-"
+                max_difficulty = 0
+                for sec in lw["sections"]:
+                    diff_score = 0
+                    for ex in sec['exercises']:
+                        for s in ex['sets']:
+                            if s['difficulty'] in ["Yüksek", "Tükeniş"]: diff_score += 1
+                    if diff_score > max_difficulty:
+                        max_difficulty = diff_score
+                        hardest_part = sec['name']
+
+                # Veritabanına Kayıt
+                log_data = {
+                    "date": datetime.datetime.now(),
+                    "main_focus": lw["main_focus"],
+                    "total_duration": total_dur,
+                    "sections": lw["sections"],
+                    "hardest_part": hardest_part
+                }
+                # Firestore'da 'workout_logs' adlı yeni koleksiyona atıyoruz (complex structure)
+                save_to_db("workout_logs", log_data)
+                
+                # Özeti Göster
+                st.balloons()
+                st.success(f"İdman Kaydedildi! Süre: {total_dur} dk | En Zor: {hardest_part}")
+                
+                # State Sıfırla
+                st.session_state.live_workout = {
+                    "active": False, "start_time": None, "sections": [], 
+                    "current_section_start": None, "exercises_temp": []
+                }
+                time.sleep(3)
+                st.rerun()
 
 # ==========================================
-# MODÜL 3: FİNANS MERKEZİ
+# MODÜL 3: FİNANS MERKEZİ (FULL + GÜNCEL)
 # ==========================================
 elif main_module == "Finans Merkezi":
     st.title("💰 Finansal Yönetim Paneli")
     
     tabs = st.tabs(["📊 Genel Bakış", "💸 Harcama", "💳 Ödeme", "🤝 Borç/Alacak", "📈 Yatırım"])
     
-    # Verileri Çek
     df_exp = get_data("expenses")
     df_pay = get_data("payments")
     df_inv = get_data("investments")
     df_debt = get_data("debts")
-    df_lia = get_data("liabilities") # Yeni Yükümlülükler
+    df_lia = get_data("liabilities")
 
     # --- TAB 1: GENEL BAKIŞ ---
     with tabs[0]:
@@ -497,7 +710,6 @@ elif main_module == "Finans Merkezi":
     with tabs[2]:
         st.header("Ödeme Takibi")
         
-        # Yükümlülükleri (Sabit Borçları) Getir - Dropdown için
         liability_options = {"Yok": None}
         if not df_lia.empty:
             for idx, row in df_lia.iterrows():
@@ -515,24 +727,19 @@ elif main_module == "Finans Merkezi":
             p_type = c4.selectbox("Tür", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
             p_acc = c5.text_input("Ödeme Aracı", value="Maaş Kartı")
             
-            # Borçtan Düşme Özelliği
             p_link = st.selectbox("Bu Ödeme Hangi Borçtan Düşülsün?", list(liability_options.keys()))
-            
             p_desc = st.text_area("Açıklama")
             
             if st.form_submit_button("Ödemeyi Kaydet"):
-                # Ödemeyi Kaydet
                 save_to_db("payments", {
                     "date": datetime.datetime.combine(p_date, datetime.time.min),
                     "amount": p_amount, "category": p_type, 
                     "place": p_place, "account": p_acc, "desc": p_desc
                 })
                 
-                # Eğer bir borç seçildiyse bakiyeyi güncelle
                 selected_lia_id = liability_options[p_link]
                 if selected_lia_id:
                     update_liability_balance(selected_lia_id, p_amount)
-                
                 st.rerun()
 
         st.divider()
@@ -600,7 +807,6 @@ elif main_module == "Finans Merkezi":
     with tabs[3]:
         st.header("Borç Defteri")
         
-        # --- YENİ BÖLÜM: KALAN BORÇ TAKİBİ (SABİT BORÇLAR) ---
         st.subheader("🏦 Kalan Sabit Borç Bakiyeleri (Kredi, KYK vb.)")
         
         with st.form("liability_form", clear_on_submit=True):
@@ -639,8 +845,6 @@ elif main_module == "Finans Merkezi":
                     delete_multiple_docs("liabilities", to_del_l)
 
         st.divider()
-        
-        # --- ESKİ BÖLÜM: ŞAHIS BORÇ/ALACAK ---
         st.subheader("🤝 Şahıs Borç/Alacak Kayıtları")
         debt_mode = st.radio("Yön", ["Verdim (Alacak)", "Aldım (Borç)"], horizontal=True)
         
