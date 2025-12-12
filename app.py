@@ -103,9 +103,13 @@ def speak(text, lang='en'):
         st.audio(fp, format='audio/mp3')
     except: pass
 
-def calculate_totals(df):
-    if df.empty: return 0, 0, 0
-    if 'date_str' not in df.columns: return 0, 0, 0
+def calculate_totals(df_in):
+    """Günlük, Haftalık, Aylık toplam hesaplar - Güvenli Versiyon"""
+    if df_in.empty: return 0, 0, 0
+    if 'date_str' not in df_in.columns: return 0, 0, 0
+    
+    # Orijinal veriyi bozmamak için kopya alıyoruz
+    df = df_in.copy()
     
     try:
         df['date_dt'] = pd.to_datetime(df['date_str'], errors='coerce')
@@ -113,6 +117,7 @@ def calculate_totals(df):
         start_week = today - pd.Timedelta(days=today.dayofweek)
         start_month = today.replace(day=1)
         
+        # 'amount' sütununu sayıya çevir
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         
         d_sum = df[df['date_dt'] == today]['amount'].sum()
@@ -384,7 +389,7 @@ elif main_module == "Finans Merkezi":
     with tabs[1]:
         st.header("Harcama Yönetimi")
         
-        # st.form ile girişleri sararak anlık yenilenmeyi engelliyoruz
+        # Giriş Formu
         with st.form("expense_input_form", clear_on_submit=True):
             st.subheader("Yeni Harcama")
             c1, c2, c3 = st.columns(3)
@@ -393,12 +398,12 @@ elif main_module == "Finans Merkezi":
             amount_in = c3.number_input("Tutar (TL)", min_value=0.0, step=10.0)
             
             c4, c5, c6 = st.columns(3)
-            cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Diğer"])
+            # Harcama Türleri Güncellendi
+            cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "Diğer"])
             method_in = c5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"])
             nec_in = c6.selectbox("Gerekli mi?", ["Evet", "Hayır"])
             desc_in = st.text_area("Açıklama")
             
-            # Kaydet butonu formun gönderimini sağlar
             if st.form_submit_button("Harcamayı Kaydet"):
                 save_to_db("expenses", {
                     "date": datetime.datetime.combine(date_in, datetime.time.min),
@@ -411,15 +416,14 @@ elif main_module == "Finans Merkezi":
         st.subheader("Harcama Kayıtları")
         
         if not df_exp.empty:
-            # 1. Gerekli sütunları belirle ve eksikse tamamla
+            # 1. Gerekli sütunları belirle
             cols = ['Sil', 'date_str', 'place', 'amount', 'category', 'method', 'necessity', 'desc', 'id']
             for col in cols:
                 if col not in df_exp.columns and col != 'Sil': df_exp[col] = None
             
-            # 2. Tipleri Zorla (StreamlitAPIException Çözümü)
+            # 2. Tipleri Zorla
             clean_df = df_exp[cols].copy()
             clean_df['Sil'] = clean_df['Sil'].astype(bool)
-            # Tarih boşsa bugünü ata veya boş bırak (Str çevirimi)
             clean_df['date_str'] = pd.to_datetime(clean_df['date_str'], errors='coerce').dt.date
             clean_df['place'] = clean_df['place'].astype(str)
             clean_df['amount'] = pd.to_numeric(clean_df['amount'], errors='coerce').fillna(0.0)
@@ -436,7 +440,7 @@ elif main_module == "Finans Merkezi":
                     "date_str": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD"),
                     "place": "Yer",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
-                    "category": st.column_config.SelectboxColumn("Kategori", options=["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Diğer"]),
+                    "category": st.column_config.SelectboxColumn("Kategori", options=["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "Diğer"]),
                     "method": "Ödeme Şekli",
                     "necessity": st.column_config.SelectboxColumn("Gerekli?", options=["Evet", "Hayır"]),
                     "desc": "Açıklama",
@@ -456,7 +460,7 @@ elif main_module == "Finans Merkezi":
             # Güncelleme Butonu
             if st.button("Tablodaki Değişiklikleri Kaydet (Harcama)"):
                 for index, row in edited_df.iterrows():
-                    if row['id']: # ID varsa güncelle
+                    if row['id']:
                         update_data = {
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
                             "date_str": str(row['date_str']),
@@ -482,11 +486,14 @@ elif main_module == "Finans Merkezi":
             c1, c2, c3 = st.columns(3)
             p_date = c1.date_input("Tarih")
             p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0)
-            p_place = c3.text_input("Yer / Kurum")
+            # İsim Değişikliği: Yer / Kurum -> Ödeme Yapılan Kurum
+            p_place = c3.text_input("Ödeme Yapılan Kurum")
             
             c4, c5 = st.columns(2)
-            p_type = c4.selectbox("Tür", ["Kredi Kartı", "Fatura", "Kredi", "Diğer"])
-            p_acc = c5.text_input("Hesap", value="Maaş Kartı")
+            # Tür Değişikliği: Kredi Kartı -> Kredi Kartı Borcu
+            p_type = c4.selectbox("Tür", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
+            # İsim Değişikliği: Hesap -> Ödeme Aracı
+            p_acc = c5.text_input("Ödeme Aracı", value="Maaş Kartı")
             p_desc = st.text_area("Açıklama")
             
             if st.form_submit_button("Ödemeyi Kaydet"):
@@ -512,15 +519,20 @@ elif main_module == "Finans Merkezi":
             clean_df_p['account'] = clean_df_p['account'].astype(str)
             clean_df_p['desc'] = clean_df_p['desc'].astype(str)
 
+            # Dinamik Satır Ekleme Özelliği Eklendi (num_rows="dynamic")
             edited_df_p = st.data_editor(
                 clean_df_p,
                 column_config={
                     "Sil": st.column_config.CheckboxColumn(default=False),
                     "date_str": st.column_config.DateColumn("Tarih"),
+                    "category": st.column_config.SelectboxColumn("Tür", options=["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"]),
+                    "place": "Ödeme Yapılan Kurum",
+                    "account": "Ödeme Aracı",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
                     "id": None
                 },
                 hide_index=True,
+                num_rows="dynamic", 
                 key="pay_editor"
             )
             
@@ -533,9 +545,12 @@ elif main_module == "Finans Merkezi":
                 for index, row in edited_df_p.iterrows():
                     if row['id']:
                         db.collection("payments").document(row['id']).update({
+                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
+                            "date_str": str(row['date_str']),
                             "place": str(row['place']), 
                             "amount": float(row['amount']), 
                             "desc": str(row['desc']),
+                            "category": str(row['category']),
                             "account": str(row['account'])
                         })
                 st.success("Güncellendi!")
@@ -618,16 +633,12 @@ elif main_module == "Finans Merkezi":
     with tabs[4]:
         st.header("📈 Akıllı Portföy")
         
-        # NOT: Yatırımda Kategori değişimi listeyi güncellediği için
-        # Kategori Seçimi FORM DIŞINDA, geri kalanı FORM İÇİNDE olacak.
-        
         c_i1, c_i2 = st.columns(2)
         
         # Kategori Seçimi (Anlık tepki verir)
         category_options = list(SYMBOL_MAP.keys()) + ["Diğer / Manuel Arama"]
         inv_cat = c_i1.selectbox("Yatırım Türü", category_options)
         
-        # Geri kalan her şey form içinde (Gereksiz yenilenmeyi önlemek için)
         with st.form("inv_form", clear_on_submit=True):
             c_f1, c_f2 = st.columns(2)
             inv_d = c_f1.date_input("Tarih", datetime.date.today())
@@ -635,7 +646,6 @@ elif main_module == "Finans Merkezi":
             selected_symbol = ""
             manual_name = ""
             
-            # Form içinde olmasına rağmen, dışarıdaki 'inv_cat' değerini okuyabiliriz.
             if inv_cat == "Diğer / Manuel Arama":
                 selected_symbol = c_f2.text_input("Sembol Gir (Yahoo Kodu)", help="Örn: IBM").strip()
                 manual_name = st.text_input("Varlık Adı", placeholder="Örn: Yabancı Fon")
