@@ -103,28 +103,32 @@ def speak(text, lang='en'):
         st.audio(fp, format='audio/mp3')
     except: pass
 
-def calculate_totals(df_in):
-    """Günlük, Haftalık, Aylık toplam hesaplar - Güvenli Versiyon"""
-    if df_in.empty: return 0, 0, 0
-    if 'date_str' not in df_in.columns: return 0, 0, 0
-    
-    # Orijinal veriyi bozmamak için kopya alıyoruz
-    df = df_in.copy()
+def calculate_totals(df):
+    """Toplam hesaplama fonksiyonu (Düzeltilmiş)"""
+    if df.empty: return 0, 0, 0
+    if 'date_str' not in df.columns: return 0, 0, 0
     
     try:
+        # Kopya üzerinde çalış (SettingWithCopy uyarısını önlemek için)
+        df = df.copy()
+        
+        # Tarih ve Tutar dönüşümleri
         df['date_dt'] = pd.to_datetime(df['date_str'], errors='coerce')
+        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
+        
+        # Bugünün tarihi (Saat bilgisinden arındırılmış)
         today = pd.Timestamp.now().normalize()
         start_week = today - pd.Timedelta(days=today.dayofweek)
         start_month = today.replace(day=1)
         
-        # 'amount' sütununu sayıya çevir
-        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
+        # dt.normalize() kullanarak saat farklarını yoksay ve sadece tarihi karşılaştır
+        d_sum = df[df['date_dt'].dt.normalize() == today]['amount'].sum()
+        w_sum = df[df['date_dt'].dt.normalize() >= start_week]['amount'].sum()
+        m_sum = df[df['date_dt'].dt.normalize() >= start_month]['amount'].sum()
         
-        d_sum = df[df['date_dt'] == today]['amount'].sum()
-        w_sum = df[df['date_dt'] >= start_week]['amount'].sum()
-        m_sum = df[df['date_dt'] >= start_month]['amount'].sum()
         return d_sum, w_sum, m_sum
-    except:
+    except Exception as e:
+        st.error(f"Hesaplama Hatası: {e}")
         return 0, 0, 0
 
 @st.cache_data(ttl=600)
@@ -367,7 +371,8 @@ elif main_module == "Finans Merkezi":
         with c1:
             if not df_exp.empty:
                 d, w, m = calculate_totals(df_exp)
-                st.metric("Bu Ay Harcama", f"{m:,.2f} TL", f"Bugün: {d:,.2f}")
+                st.metric("Bu Ay Harcama", f"{m:,.2f} TL", f"Bugün: {d:,.2f} TL")
+            else: st.write("-")
         with c2:
             if not df_pay.empty:
                 _, _, m_pay = calculate_totals(df_pay)
@@ -389,7 +394,7 @@ elif main_module == "Finans Merkezi":
     with tabs[1]:
         st.header("Harcama Yönetimi")
         
-        # Giriş Formu
+        # Giriş Alanı (Session State ile Temizleme)
         with st.form("expense_input_form", clear_on_submit=True):
             st.subheader("Yeni Harcama")
             c1, c2, c3 = st.columns(3)
@@ -416,12 +421,10 @@ elif main_module == "Finans Merkezi":
         st.subheader("Harcama Kayıtları")
         
         if not df_exp.empty:
-            # 1. Gerekli sütunları belirle
             cols = ['Sil', 'date_str', 'place', 'amount', 'category', 'method', 'necessity', 'desc', 'id']
             for col in cols:
                 if col not in df_exp.columns and col != 'Sil': df_exp[col] = None
             
-            # 2. Tipleri Zorla
             clean_df = df_exp[cols].copy()
             clean_df['Sil'] = clean_df['Sil'].astype(bool)
             clean_df['date_str'] = pd.to_datetime(clean_df['date_str'], errors='coerce').dt.date
@@ -432,7 +435,6 @@ elif main_module == "Finans Merkezi":
             clean_df['necessity'] = clean_df['necessity'].astype(str)
             clean_df['desc'] = clean_df['desc'].astype(str)
             
-            # 3. Data Editor
             edited_df = st.data_editor(
                 clean_df,
                 column_config={
@@ -440,6 +442,7 @@ elif main_module == "Finans Merkezi":
                     "date_str": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD"),
                     "place": "Yer",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
+                    # Tablo içi düzenlemede de yeni kategoriler eklendi
                     "category": st.column_config.SelectboxColumn("Kategori", options=["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "Diğer"]),
                     "method": "Ödeme Şekli",
                     "necessity": st.column_config.SelectboxColumn("Gerekli?", options=["Evet", "Hayır"]),
@@ -451,16 +454,15 @@ elif main_module == "Finans Merkezi":
                 key="exp_editor"
             )
 
-            # Silme İşlemi
             to_delete = edited_df[edited_df['Sil'] == True]['id'].tolist()
             if to_delete:
                 if st.button(f"Seçili {len(to_delete)} Harcamayı Sil", type="primary"):
                     delete_multiple_docs("expenses", to_delete)
             
-            # Güncelleme Butonu
             if st.button("Tablodaki Değişiklikleri Kaydet (Harcama)"):
                 for index, row in edited_df.iterrows():
-                    if row['id']:
+                    # Var olan kayıtları güncelle
+                    if row['id']: 
                         update_data = {
                             "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
                             "date_str": str(row['date_str']),
@@ -473,6 +475,18 @@ elif main_module == "Finans Merkezi":
                         }
                         update_data = {k: v for k, v in update_data.items() if v is not None}
                         db.collection("expenses").document(row['id']).update(update_data)
+                    # Yeni eklenen satırlar (ID'si olmayanlar)
+                    else:
+                         save_to_db("expenses", {
+                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
+                            "place": str(row['place']),
+                            "amount": float(row['amount']),
+                            "category": str(row['category']),
+                            "method": str(row['method']),
+                            "necessity": str(row['necessity']),
+                            "desc": str(row['desc'])
+                        })
+
                 st.success("Güncellendi!")
                 time.sleep(1)
                 st.rerun()
@@ -486,13 +500,13 @@ elif main_module == "Finans Merkezi":
             c1, c2, c3 = st.columns(3)
             p_date = c1.date_input("Tarih")
             p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0)
-            # İsim Değişikliği: Yer / Kurum -> Ödeme Yapılan Kurum
+            # İsim Güncellendi
             p_place = c3.text_input("Ödeme Yapılan Kurum")
             
             c4, c5 = st.columns(2)
-            # Tür Değişikliği: Kredi Kartı -> Kredi Kartı Borcu
+            # Tür Güncellendi: Kredi Kartı -> Kredi Kartı Borcu
             p_type = c4.selectbox("Tür", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
-            # İsim Değişikliği: Hesap -> Ödeme Aracı
+            # İsim Güncellendi: Hesap -> Ödeme Aracı
             p_acc = c5.text_input("Ödeme Aracı", value="Maaş Kartı")
             p_desc = st.text_area("Açıklama")
             
@@ -519,20 +533,20 @@ elif main_module == "Finans Merkezi":
             clean_df_p['account'] = clean_df_p['account'].astype(str)
             clean_df_p['desc'] = clean_df_p['desc'].astype(str)
 
-            # Dinamik Satır Ekleme Özelliği Eklendi (num_rows="dynamic")
             edited_df_p = st.data_editor(
                 clean_df_p,
                 column_config={
                     "Sil": st.column_config.CheckboxColumn(default=False),
                     "date_str": st.column_config.DateColumn("Tarih"),
-                    "category": st.column_config.SelectboxColumn("Tür", options=["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"]),
+                    "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
                     "place": "Ödeme Yapılan Kurum",
                     "account": "Ödeme Aracı",
-                    "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
+                    "category": st.column_config.SelectboxColumn("Tür", options=["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"]),
                     "id": None
                 },
                 hide_index=True,
-                num_rows="dynamic", 
+                # Dinamik Satır Ekleme Özelliği Eklendi
+                num_rows="dynamic",
                 key="pay_editor"
             )
             
@@ -543,15 +557,26 @@ elif main_module == "Finans Merkezi":
             
             if st.button("Tablodaki Değişiklikleri Kaydet (Ödeme)"):
                 for index, row in edited_df_p.iterrows():
+                    # Var olanı güncelle
                     if row['id']:
                         db.collection("payments").document(row['id']).update({
-                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
-                            "date_str": str(row['date_str']),
                             "place": str(row['place']), 
                             "amount": float(row['amount']), 
                             "desc": str(row['desc']),
+                            "account": str(row['account']),
                             "category": str(row['category']),
-                            "account": str(row['account'])
+                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
+                            "date_str": str(row['date_str'])
+                        })
+                    # Yeni ekleneni kaydet
+                    else:
+                        save_to_db("payments", {
+                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
+                            "amount": float(row['amount']), 
+                            "category": str(row['category']), 
+                            "place": str(row['place']), 
+                            "account": str(row['account']), 
+                            "desc": str(row['desc'])
                         })
                 st.success("Güncellendi!")
                 time.sleep(1)
@@ -634,8 +659,6 @@ elif main_module == "Finans Merkezi":
         st.header("📈 Akıllı Portföy")
         
         c_i1, c_i2 = st.columns(2)
-        
-        # Kategori Seçimi (Anlık tepki verir)
         category_options = list(SYMBOL_MAP.keys()) + ["Diğer / Manuel Arama"]
         inv_cat = c_i1.selectbox("Yatırım Türü", category_options)
         
