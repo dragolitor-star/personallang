@@ -104,24 +104,19 @@ def speak(text, lang='en'):
     except: pass
 
 def calculate_totals(df):
-    """Toplam hesaplama fonksiyonu (Düzeltilmiş)"""
+    """Toplam hesaplama fonksiyonu"""
     if df.empty: return 0, 0, 0
     if 'date_str' not in df.columns: return 0, 0, 0
     
     try:
-        # Kopya üzerinde çalış (SettingWithCopy uyarısını önlemek için)
         df = df.copy()
-        
-        # Tarih ve Tutar dönüşümleri
         df['date_dt'] = pd.to_datetime(df['date_str'], errors='coerce')
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         
-        # Bugünün tarihi (Saat bilgisinden arındırılmış)
         today = pd.Timestamp.now().normalize()
         start_week = today - pd.Timedelta(days=today.dayofweek)
         start_month = today.replace(day=1)
         
-        # dt.normalize() kullanarak saat farklarını yoksay ve sadece tarihi karşılaştır
         d_sum = df[df['date_dt'].dt.normalize() == today]['amount'].sum()
         w_sum = df[df['date_dt'].dt.normalize() >= start_week]['amount'].sum()
         m_sum = df[df['date_dt'].dt.normalize() >= start_month]['amount'].sum()
@@ -153,7 +148,6 @@ if main_module == "Dil Asistanı":
     
     if lang_menu == "Kelime Ekle":
         st.subheader("Manuel Ekleme")
-        # Form kullanımı
         with st.form("word_add_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             en = c1.text_input("🇬🇧 İngilizce")
@@ -274,7 +268,6 @@ elif main_module == "Fiziksel Takip":
 
     if phys_menu == "İdman Takibi":
         st.subheader("🏋️‍♂️ İdman Kaydı")
-        # Form kullanımı
         with st.form("workout_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             w_type = c1.selectbox("Tür", ["Fitness", "Kardiyo", "Yüzme", "Yoga"])
@@ -309,7 +302,6 @@ elif main_module == "Fiziksel Takip":
         st.divider()
         df = get_data("measurements")
         if not df.empty:
-            # Grafik için veri temizliği
             df['date'] = pd.to_datetime(df['date_str'], errors='coerce')
             df['weight'] = pd.to_numeric(df['weight'], errors='coerce')
             df = df.dropna(subset=['date', 'weight']).sort_values('date')
@@ -394,7 +386,6 @@ elif main_module == "Finans Merkezi":
     with tabs[1]:
         st.header("Harcama Yönetimi")
         
-        # Giriş Alanı (Session State ile Temizleme)
         with st.form("expense_input_form", clear_on_submit=True):
             st.subheader("Yeni Harcama")
             c1, c2, c3 = st.columns(3)
@@ -403,7 +394,6 @@ elif main_module == "Finans Merkezi":
             amount_in = c3.number_input("Tutar (TL)", min_value=0.0, step=10.0)
             
             c4, c5, c6 = st.columns(3)
-            # Harcama Türleri Güncellendi
             cat_in = c4.selectbox("Tür", ["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "Diğer"])
             method_in = c5.selectbox("Şekil", ["Kredi Kartı", "Nakit", "Banka Kartı"])
             nec_in = c6.selectbox("Gerekli mi?", ["Evet", "Hayır"])
@@ -442,7 +432,6 @@ elif main_module == "Finans Merkezi":
                     "date_str": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD"),
                     "place": "Yer",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
-                    # Tablo içi düzenlemede de yeni kategoriler eklendi
                     "category": st.column_config.SelectboxColumn("Kategori", options=["Market", "Yiyecek", "İçecek", "Ulaşım", "Eğlence", "Kasap", "Supplement", "Yatırım", "Diğer"]),
                     "method": "Ödeme Şekli",
                     "necessity": st.column_config.SelectboxColumn("Gerekli?", options=["Evet", "Hayır"]),
@@ -461,31 +450,57 @@ elif main_module == "Finans Merkezi":
             
             if st.button("Tablodaki Değişiklikleri Kaydet (Harcama)"):
                 for index, row in edited_df.iterrows():
-                    # Var olan kayıtları güncelle
+                    # VERİ HAZIRLIĞI
+                    # Yeni eklenen satırlar için null kontrolleri
+                    d_place = str(row['place']) if pd.notna(row['place']) else ""
+                    d_amount = float(row['amount']) if pd.notna(row['amount']) else 0.0
+                    d_cat = str(row['category']) if pd.notna(row['category']) else "Diğer"
+                    d_method = str(row['method']) if pd.notna(row['method']) else "Nakit"
+                    d_nec = str(row['necessity']) if pd.notna(row['necessity']) else "Evet"
+                    d_desc = str(row['desc']) if pd.notna(row['desc']) else ""
+                    
+                    # Tarih kontrolü
+                    d_date_obj = datetime.datetime.now()
+                    d_date_str = str(datetime.date.today())
+                    
+                    if pd.notna(row['date_str']):
+                        d_date_str = str(row['date_str'])
+                        # Data editor'den gelen tarih objesi datetime.date olabilir
+                        if isinstance(row['date_str'], datetime.date):
+                             d_date_obj = datetime.datetime.combine(row['date_str'], datetime.time.min)
+                        else:
+                             # String gelirse parse etmeyi dene
+                             try:
+                                 d_date_obj = datetime.datetime.strptime(str(row['date_str']), "%Y-%m-%d")
+                             except: pass
+
+                    # GÜNCELLEME (ID VARSA)
                     if row['id']: 
                         update_data = {
-                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
-                            "date_str": str(row['date_str']),
-                            "place": str(row['place']),
-                            "amount": float(row['amount']),
-                            "category": str(row['category']),
-                            "method": str(row['method']),
-                            "necessity": str(row['necessity']),
-                            "desc": str(row['desc'])
+                            "date": d_date_obj,
+                            "date_str": d_date_str,
+                            "place": d_place,
+                            "amount": d_amount,
+                            "category": d_cat,
+                            "method": d_method,
+                            "necessity": d_nec,
+                            "desc": d_desc
                         }
-                        update_data = {k: v for k, v in update_data.items() if v is not None}
                         db.collection("expenses").document(row['id']).update(update_data)
-                    # Yeni eklenen satırlar (ID'si olmayanlar)
+                    
+                    # EKLEME (ID YOKSA ve VERİ DOLUYSA)
                     else:
-                         save_to_db("expenses", {
-                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
-                            "place": str(row['place']),
-                            "amount": float(row['amount']),
-                            "category": str(row['category']),
-                            "method": str(row['method']),
-                            "necessity": str(row['necessity']),
-                            "desc": str(row['desc'])
-                        })
+                        # Boş satır eklenmesini önlemek için basit kontrol
+                        if d_amount > 0 or d_place != "":
+                             save_to_db("expenses", {
+                                "date": d_date_obj,
+                                "place": d_place,
+                                "amount": d_amount,
+                                "category": d_cat,
+                                "method": d_method,
+                                "necessity": d_nec,
+                                "desc": d_desc
+                            })
 
                 st.success("Güncellendi!")
                 time.sleep(1)
@@ -500,13 +515,10 @@ elif main_module == "Finans Merkezi":
             c1, c2, c3 = st.columns(3)
             p_date = c1.date_input("Tarih")
             p_amount = c2.number_input("Tutar", min_value=0.0, step=10.0)
-            # İsim Güncellendi
             p_place = c3.text_input("Ödeme Yapılan Kurum")
             
             c4, c5 = st.columns(2)
-            # Tür Güncellendi: Kredi Kartı -> Kredi Kartı Borcu
             p_type = c4.selectbox("Tür", ["Kredi Kartı Borcu", "Fatura", "Kredi", "Diğer"])
-            # İsim Güncellendi: Hesap -> Ödeme Aracı
             p_acc = c5.text_input("Ödeme Aracı", value="Maaş Kartı")
             p_desc = st.text_area("Açıklama")
             
@@ -545,7 +557,6 @@ elif main_module == "Finans Merkezi":
                     "id": None
                 },
                 hide_index=True,
-                # Dinamik Satır Ekleme Özelliği Eklendi
                 num_rows="dynamic",
                 key="pay_editor"
             )
@@ -557,27 +568,39 @@ elif main_module == "Finans Merkezi":
             
             if st.button("Tablodaki Değişiklikleri Kaydet (Ödeme)"):
                 for index, row in edited_df_p.iterrows():
-                    # Var olanı güncelle
+                    # Veri Temizliği
+                    d_place = str(row['place']) if pd.notna(row['place']) else ""
+                    d_amount = float(row['amount']) if pd.notna(row['amount']) else 0.0
+                    d_desc = str(row['desc']) if pd.notna(row['desc']) else ""
+                    d_acc = str(row['account']) if pd.notna(row['account']) else ""
+                    d_cat = str(row['category']) if pd.notna(row['category']) else "Diğer"
+                    
+                    d_date_obj = datetime.datetime.now()
+                    if pd.notna(row['date_str']):
+                        if isinstance(row['date_str'], datetime.date):
+                             d_date_obj = datetime.datetime.combine(row['date_str'], datetime.time.min)
+                        else:
+                             try: d_date_obj = datetime.datetime.strptime(str(row['date_str']), "%Y-%m-%d")
+                             except: pass
+
+                    # Güncelleme
                     if row['id']:
                         db.collection("payments").document(row['id']).update({
-                            "place": str(row['place']), 
-                            "amount": float(row['amount']), 
-                            "desc": str(row['desc']),
-                            "account": str(row['account']),
-                            "category": str(row['category']),
-                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else None,
-                            "date_str": str(row['date_str'])
+                            "place": d_place, "amount": d_amount, "desc": d_desc,
+                            "account": d_acc, "category": d_cat,
+                            "date": d_date_obj, "date_str": str(row['date_str'])
                         })
-                    # Yeni ekleneni kaydet
+                    # Ekleme
                     else:
-                        save_to_db("payments", {
-                            "date": datetime.datetime.combine(row['date_str'], datetime.time.min) if row['date_str'] else datetime.datetime.now(),
-                            "amount": float(row['amount']), 
-                            "category": str(row['category']), 
-                            "place": str(row['place']), 
-                            "account": str(row['account']), 
-                            "desc": str(row['desc'])
-                        })
+                        if d_amount > 0 or d_place != "":
+                             save_to_db("payments", {
+                                "date": d_date_obj,
+                                "amount": d_amount, 
+                                "category": d_cat, 
+                                "place": d_place, 
+                                "account": d_acc, 
+                                "desc": d_desc
+                            })
                 st.success("Güncellendi!")
                 time.sleep(1)
                 st.rerun()
