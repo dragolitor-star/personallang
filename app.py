@@ -220,6 +220,10 @@ def update_monthly_habit_data(year, month, habit_data, sleep_data):
         "updated_at": firestore.SERVER_TIMESTAMP
     }, merge=True)
 
+# Helper function for setting session state from buttons
+def set_state_value(key, value):
+    st.session_state[key] = value
+
 # --- 4. ARAYÜZ VE MODÜLLER ---
 st.sidebar.title("🚀 Life OS")
 main_module = st.sidebar.selectbox("Modül Seç", ["Dil Asistanı", "Fiziksel Takip", "Alışkanlık Takibi", "Finans Merkezi"])
@@ -506,7 +510,6 @@ elif main_module == "Fiziksel Takip":
             if 'temp_selected_regions' not in st.session_state:
                 st.session_state.temp_selected_regions = []
             
-            # BUTONLU BÖLGE SEÇİMİ
             regions_grid = ["Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Karın", "Kardiyo"]
             cols = st.columns(4)
             for i, r in enumerate(regions_grid):
@@ -844,10 +847,7 @@ elif main_module == "Fiziksel Takip":
                                     for ex_idx, ex in enumerate(current_exercises):
                                         st.markdown(f"**{ex['name']}**")
                                         
-                                        # Setleri düzenlenebilir tablo yap
                                         sets_df = pd.DataFrame(ex['sets'])
-                                        
-                                        # Data Editor ile düzenleme
                                         edited_sets_df = st.data_editor(
                                             sets_df, 
                                             key=f"editor_{prof['id']}_{ex_idx}",
@@ -859,9 +859,7 @@ elif main_module == "Fiziksel Takip":
                                         )
                                         
                                         col_save, col_del = st.columns([1, 1])
-                                        
                                         if col_save.button("Değişiklikleri Kaydet", key=f"save_edit_{prof['id']}_{ex_idx}"):
-                                            # DataFrame'i listeye çevir ve güncelle
                                             updated_sets = edited_sets_df.to_dict('records')
                                             current_exercises[ex_idx]['sets'] = updated_sets
                                             db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exercises})
@@ -873,7 +871,6 @@ elif main_module == "Fiziksel Takip":
                                             del current_exercises[ex_idx]
                                             db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exercises})
                                             st.rerun()
-                                            
                                         st.divider()
 
                                 st.markdown("---")
@@ -898,8 +895,10 @@ elif main_module == "Fiziksel Takip":
                                     
                                     cols_w = st.columns(len(w_buttons) if len(w_buttons)<8 else 8)
                                     for i, w in enumerate(w_buttons):
+                                        # Butona basılınca çalışacak callback mantığı
                                         if cols_w[i % 8].button(str(w), key=f"btn_w_{w}_{prof['id']}"):
                                             st.session_state[f"inp_w_{prof['id']}"] = float(w)
+                                            st.rerun() # Değerin güncellenmesi için anlık yenile
                                     
                                     # Tekrar Butonları
                                     st.write("Tekrar Seç:")
@@ -908,6 +907,7 @@ elif main_module == "Fiziksel Takip":
                                     for i, r in enumerate(r_buttons):
                                         if cols_r[i].button(str(r), key=f"btn_r_{r}_{prof['id']}"):
                                             st.session_state[f"inp_r_{prof['id']}"] = int(r)
+                                            st.rerun()
 
                                     # Giriş Alanları (Butonlarla güncellenir)
                                     c_in1, c_in2 = st.columns(2)
@@ -1149,7 +1149,7 @@ elif main_module == "Finans Merkezi":
             edited_df = st.data_editor(
                 clean_df,
                 column_config={
-                    "Sil": st.column_config.CheckboxColumn(default=False, width="small"),
+                    "Sil": st.column_config.CheckboxColumn(default=False),
                     "date_str": st.column_config.DateColumn("Tarih", format="YYYY-MM-DD"),
                     "place": "Yer",
                     "amount": st.column_config.NumberColumn("Tutar", format="%.2f TL"),
