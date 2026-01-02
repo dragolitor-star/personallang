@@ -220,10 +220,6 @@ def update_monthly_habit_data(year, month, habit_data, sleep_data):
         "updated_at": firestore.SERVER_TIMESTAMP
     }, merge=True)
 
-# Helper function for setting session state from buttons
-def set_state_value(key, value):
-    st.session_state[key] = value
-
 # --- 4. ARAYÜZ VE MODÜLLER ---
 st.sidebar.title("🚀 Life OS")
 main_module = st.sidebar.selectbox("Modül Seç", ["Dil Asistanı", "Fiziksel Takip", "Alışkanlık Takibi", "Finans Merkezi"])
@@ -838,7 +834,6 @@ elif main_module == "Fiziksel Takip":
                         for prof in reg_profs:
                             with st.expander(f"📄 {prof['name']}"):
                                 
-                                # HAREKETLERİ LİSTELE VE DÜZENLE (DATA EDITOR)
                                 current_exercises = prof.get('exercises', [])
                                 
                                 if current_exercises:
@@ -882,42 +877,42 @@ elif main_module == "Fiziksel Takip":
                                     ex_opts = FULL_EXERCISE_LIST.get(reg, [])
                                     sel_ex = c_add2.selectbox("Hareket", ex_opts, key=f"ex_sel_{prof['id']}")
                                     
-                                    # --- BUTONLU VERİ GİRİŞİ (AKILLI) ---
-                                    # Key state başlatma
-                                    if f"inp_w_{prof['id']}" not in st.session_state: st.session_state[f"inp_w_{prof['id']}"] = 0.0
-                                    if f"inp_r_{prof['id']}" not in st.session_state: st.session_state[f"inp_r_{prof['id']}"] = 0
+                                    # --- BUTONLU VERİ GİRİŞİ (DÜZELTİLMİŞ) ---
+                                    # Session Keylerini Tanımla
+                                    w_key = f"w_input_{prof['id']}"
+                                    r_key = f"r_input_{prof['id']}"
+                                    
+                                    if w_key not in st.session_state: st.session_state[w_key] = 0.0
+                                    if r_key not in st.session_state: st.session_state[r_key] = 0
                                     if f"temp_sets_{prof['id']}" not in st.session_state: st.session_state[f"temp_sets_{prof['id']}"] = []
 
-                                    # Ağırlık Butonları
                                     st.write("Ağırlık Seç (KG):")
                                     is_dumbell = "dumbell" in sel_ex.lower() or "dumbbell" in sel_ex.lower()
                                     w_buttons = [2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30] if is_dumbell else [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
                                     
                                     cols_w = st.columns(len(w_buttons) if len(w_buttons)<8 else 8)
                                     for i, w in enumerate(w_buttons):
-                                        # Butona basılınca çalışacak callback mantığı
                                         if cols_w[i % 8].button(str(w), key=f"btn_w_{w}_{prof['id']}"):
-                                            st.session_state[f"inp_w_{prof['id']}"] = float(w)
-                                            st.rerun() # Değerin güncellenmesi için anlık yenile
+                                            st.session_state[w_key] = float(w)
+                                            st.rerun()
                                     
-                                    # Tekrar Butonları
                                     st.write("Tekrar Seç:")
                                     r_buttons = [4, 6, 8, 10, 12, 15, 20]
                                     cols_r = st.columns(len(r_buttons))
                                     for i, r in enumerate(r_buttons):
                                         if cols_r[i].button(str(r), key=f"btn_r_{r}_{prof['id']}"):
-                                            st.session_state[f"inp_r_{prof['id']}"] = int(r)
+                                            st.session_state[r_key] = int(r)
                                             st.rerun()
 
-                                    # Giriş Alanları (Butonlarla güncellenir)
                                     c_in1, c_in2 = st.columns(2)
-                                    final_w = c_in1.number_input("Ağırlık", value=st.session_state[f"inp_w_{prof['id']}"], step=2.5, key=f"num_w_{prof['id']}")
-                                    final_r = c_in2.number_input("Tekrar", value=st.session_state[f"inp_r_{prof['id']}"], step=1, key=f"num_r_{prof['id']}")
+                                    # Key parametresini kullanarak butonun güncellediği state'i bağlıyoruz
+                                    final_w = c_in1.number_input("Ağırlık", key=w_key, step=2.5)
+                                    final_r = c_in2.number_input("Tekrar", key=r_key, step=1)
                                     
                                     if st.button("Listeye Set Ekle", key=f"add_list_set_{prof['id']}"):
                                         st.session_state[f"temp_sets_{prof['id']}"].append({"weight": final_w, "reps": final_r})
+                                        st.rerun()
                                     
-                                    # Eklenen Setler Tablosu
                                     curr_sets = st.session_state[f"temp_sets_{prof['id']}"]
                                     if curr_sets:
                                         st.dataframe(pd.DataFrame(curr_sets), use_container_width=True)
