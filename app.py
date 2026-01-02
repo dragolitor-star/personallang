@@ -134,14 +134,12 @@ def get_full_exercise_map():
     return full_map
 
 def get_workout_profiles():
-    """Tüm idman profillerini çeker"""
     try:
         docs = db.collection("workout_profiles").stream()
         return [dict(doc.to_dict(), **{"id": doc.id}) for doc in docs]
     except: return []
 
 def get_exercise_profiles():
-    """Özel hareket profillerini (FST-7 vb.) çeker"""
     try:
         docs = db.collection("exercise_profiles").stream()
         return [dict(doc.to_dict(), **{"id": doc.id}) for doc in docs]
@@ -354,7 +352,6 @@ elif main_module == "Fiziksel Takip":
     
     FULL_EXERCISE_LIST = get_full_exercise_map()
     
-    # 4 SEKME YAPISI:
     tabs = st.tabs(["📅 Fiziksel Aktivite Takip Tablosu", "⚡ Canlı İdman Modu", "⚙️ Hareket Tanımla", "🏋️‍♂️ İdman Profili Oluşturma"])
 
     # --- SEKME 1: GEÇMİŞ VE ANALİZ ---
@@ -797,7 +794,7 @@ elif main_module == "Fiziksel Takip":
                     if c3.button("Sil", key=f"del_cust_{row['id']}"): delete_from_db("custom_exercises", row['id'])
         except: pass
 
-    # --- SEKME 4: İDMAN PROFİLİ OLUŞTURMA (YENİ) ---
+    # --- SEKME 4: İDMAN PROFİLİ OLUŞTURMA (YENİ & GÜNCELLENMİŞ) ---
     with tabs[3]:
         st.header("🏋️‍♂️ İdman Profili Oluşturma")
         
@@ -852,15 +849,32 @@ elif main_module == "Fiziksel Takip":
                                     ex_opts = FULL_EXERCISE_LIST.get(reg, [])
                                     sel_ex = c_add2.selectbox("Hareket", ex_opts, key=f"ex_sel_{prof['id']}")
                                     
-                                    with st.form(f"add_sets_to_prof_{prof['id']}"):
-                                        s_w = st.number_input("Ağırlık")
-                                        s_r = st.number_input("Tekrar")
-                                        s_c = st.number_input("Set Sayısı", min_value=1, value=3)
-                                        if st.form_submit_button("Hareketi Ekle"):
-                                            new_sets = [{"weight": s_w, "reps": s_r} for _ in range(s_c)]
+                                    # YENİ SET EKLEME YAPISI (TABLO GİBİ)
+                                    if f"temp_sets_{prof['id']}" not in st.session_state:
+                                        st.session_state[f"temp_sets_{prof['id']}"] = []
+                                        
+                                    st.write("Setleri Oluştur:")
+                                    with st.form(f"set_adder_prof_{prof['id']}"):
+                                        c_w, c_r = st.columns(2)
+                                        in_w = c_w.number_input("Ağırlık (KG)", step=2.5)
+                                        in_r = c_r.number_input("Tekrar", step=1)
+                                        
+                                        if st.form_submit_button("Listeye Set Ekle"):
+                                            st.session_state[f"temp_sets_{prof['id']}"].append({"weight": in_w, "reps": in_r})
+                                            st.rerun()
+                                            
+                                    # Eklenen setleri göster
+                                    current_temp_sets = st.session_state[f"temp_sets_{prof['id']}"]
+                                    if current_temp_sets:
+                                        st.dataframe(pd.DataFrame(current_temp_sets), use_container_width=True)
+                                        
+                                        if st.button("Hareketi Profile Kaydet", key=f"save_ex_prof_{prof['id']}"):
                                             current_exs = prof.get('exercises', [])
-                                            current_exs.append({"name": sel_ex, "sets": new_sets})
+                                            current_exs.append({"name": sel_ex, "sets": current_temp_sets})
                                             db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exs})
+                                            st.session_state[f"temp_sets_{prof['id']}"] = [] # Temizle
+                                            st.success("Eklendi")
+                                            time.sleep(1)
                                             st.rerun()
                                             
                                 else: 
