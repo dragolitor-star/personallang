@@ -834,14 +834,50 @@ elif main_module == "Fiziksel Takip":
                         reg_profs = [p for p in all_profiles if p['region'] == reg]
                         for prof in reg_profs:
                             with st.expander(f"📄 {prof['name']}"):
-                                st.write("Hareketler:")
-                                for ex in prof.get('exercises', []):
-                                    st.markdown(f"- **{ex['name']}**")
-                                    with st.expander("Set Detayları"):
-                                        st.table(pd.DataFrame(ex['sets']))
                                 
+                                # HAREKETLERİ LİSTELE VE DÜZENLE (DATA EDITOR)
+                                current_exercises = prof.get('exercises', [])
+                                
+                                if current_exercises:
+                                    st.write("Hareketler (Düzenlemek için değerleri değiştirip kaydedin)")
+                                    
+                                    for ex_idx, ex in enumerate(current_exercises):
+                                        st.markdown(f"**{ex['name']}**")
+                                        
+                                        # Setleri düzenlenebilir tablo yap
+                                        sets_df = pd.DataFrame(ex['sets'])
+                                        
+                                        # Data Editor ile düzenleme
+                                        edited_sets_df = st.data_editor(
+                                            sets_df, 
+                                            key=f"editor_{prof['id']}_{ex_idx}",
+                                            num_rows="dynamic",
+                                            column_config={
+                                                "weight": st.column_config.NumberColumn("Ağırlık", step=2.5),
+                                                "reps": st.column_config.NumberColumn("Tekrar", step=1)
+                                            }
+                                        )
+                                        
+                                        col_save, col_del = st.columns([1, 1])
+                                        
+                                        if col_save.button("Değişiklikleri Kaydet", key=f"save_edit_{prof['id']}_{ex_idx}"):
+                                            # DataFrame'i listeye çevir ve güncelle
+                                            updated_sets = edited_sets_df.to_dict('records')
+                                            current_exercises[ex_idx]['sets'] = updated_sets
+                                            db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exercises})
+                                            st.success("Güncellendi")
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                            
+                                        if col_del.button("Bu Hareketi Profilden Sil", key=f"del_ex_prof_{prof['id']}_{ex_idx}"):
+                                            del current_exercises[ex_idx]
+                                            db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exercises})
+                                            st.rerun()
+                                            
+                                        st.divider()
+
                                 st.markdown("---")
-                                st.write("Hareket Ekle:")
+                                st.write("### Yeni Hareket Ekle")
                                 c_add1, c_add2 = st.columns(2)
                                 source_type = c_add1.radio("Kaynak", ["Normal Hareket", "Hareket Profili"], key=f"src_{prof['id']}")
                                 
@@ -849,31 +885,47 @@ elif main_module == "Fiziksel Takip":
                                     ex_opts = FULL_EXERCISE_LIST.get(reg, [])
                                     sel_ex = c_add2.selectbox("Hareket", ex_opts, key=f"ex_sel_{prof['id']}")
                                     
-                                    # YENİ SET EKLEME YAPISI (TABLO GİBİ)
-                                    if f"temp_sets_{prof['id']}" not in st.session_state:
-                                        st.session_state[f"temp_sets_{prof['id']}"] = []
-                                        
-                                    st.write("Setleri Oluştur:")
-                                    with st.form(f"set_adder_prof_{prof['id']}"):
-                                        c_w, c_r = st.columns(2)
-                                        in_w = c_w.number_input("Ağırlık (KG)", step=2.5)
-                                        in_r = c_r.number_input("Tekrar", step=1)
-                                        
-                                        if st.form_submit_button("Listeye Set Ekle"):
-                                            st.session_state[f"temp_sets_{prof['id']}"].append({"weight": in_w, "reps": in_r})
-                                            st.rerun()
-                                            
-                                    # Eklenen setleri göster
-                                    current_temp_sets = st.session_state[f"temp_sets_{prof['id']}"]
-                                    if current_temp_sets:
-                                        st.dataframe(pd.DataFrame(current_temp_sets), use_container_width=True)
-                                        
-                                        if st.button("Hareketi Profile Kaydet", key=f"save_ex_prof_{prof['id']}"):
-                                            current_exs = prof.get('exercises', [])
-                                            current_exs.append({"name": sel_ex, "sets": current_temp_sets})
-                                            db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exs})
-                                            st.session_state[f"temp_sets_{prof['id']}"] = [] # Temizle
-                                            st.success("Eklendi")
+                                    # --- BUTONLU VERİ GİRİŞİ (AKILLI) ---
+                                    # Key state başlatma
+                                    if f"inp_w_{prof['id']}" not in st.session_state: st.session_state[f"inp_w_{prof['id']}"] = 0.0
+                                    if f"inp_r_{prof['id']}" not in st.session_state: st.session_state[f"inp_r_{prof['id']}"] = 0
+                                    if f"temp_sets_{prof['id']}" not in st.session_state: st.session_state[f"temp_sets_{prof['id']}"] = []
+
+                                    # Ağırlık Butonları
+                                    st.write("Ağırlık Seç (KG):")
+                                    is_dumbell = "dumbell" in sel_ex.lower() or "dumbbell" in sel_ex.lower()
+                                    w_buttons = [2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30] if is_dumbell else [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+                                    
+                                    cols_w = st.columns(len(w_buttons) if len(w_buttons)<8 else 8)
+                                    for i, w in enumerate(w_buttons):
+                                        if cols_w[i % 8].button(str(w), key=f"btn_w_{w}_{prof['id']}"):
+                                            st.session_state[f"inp_w_{prof['id']}"] = float(w)
+                                    
+                                    # Tekrar Butonları
+                                    st.write("Tekrar Seç:")
+                                    r_buttons = [4, 6, 8, 10, 12, 15, 20]
+                                    cols_r = st.columns(len(r_buttons))
+                                    for i, r in enumerate(r_buttons):
+                                        if cols_r[i].button(str(r), key=f"btn_r_{r}_{prof['id']}"):
+                                            st.session_state[f"inp_r_{prof['id']}"] = int(r)
+
+                                    # Giriş Alanları (Butonlarla güncellenir)
+                                    c_in1, c_in2 = st.columns(2)
+                                    final_w = c_in1.number_input("Ağırlık", value=st.session_state[f"inp_w_{prof['id']}"], step=2.5, key=f"num_w_{prof['id']}")
+                                    final_r = c_in2.number_input("Tekrar", value=st.session_state[f"inp_r_{prof['id']}"], step=1, key=f"num_r_{prof['id']}")
+                                    
+                                    if st.button("Listeye Set Ekle", key=f"add_list_set_{prof['id']}"):
+                                        st.session_state[f"temp_sets_{prof['id']}"].append({"weight": final_w, "reps": final_r})
+                                    
+                                    # Eklenen Setler Tablosu
+                                    curr_sets = st.session_state[f"temp_sets_{prof['id']}"]
+                                    if curr_sets:
+                                        st.dataframe(pd.DataFrame(curr_sets), use_container_width=True)
+                                        if st.button("Hareketi Profile Kaydet", key=f"save_prof_{prof['id']}"):
+                                            current_exercises.append({"name": sel_ex, "sets": curr_sets})
+                                            db.collection("workout_profiles").document(prof['id']).update({"exercises": current_exercises})
+                                            st.session_state[f"temp_sets_{prof['id']}"] = []
+                                            st.success("Kaydedildi")
                                             time.sleep(1)
                                             st.rerun()
                                             
