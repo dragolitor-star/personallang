@@ -506,6 +506,7 @@ elif main_module == "Fiziksel Takip":
             if 'temp_selected_regions' not in st.session_state:
                 st.session_state.temp_selected_regions = []
             
+            # BUTONLU BÖLGE SEÇİMİ
             regions_grid = ["Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Karın", "Kardiyo"]
             cols = st.columns(4)
             for i, r in enumerate(regions_grid):
@@ -521,18 +522,28 @@ elif main_module == "Fiziksel Takip":
             if selected_regs:
                 st.info(f"Seçilen Bölgeler: {', '.join(selected_regs)}")
 
-            selected_profile_data = None
+            # ÇOKLU PROFİL SEÇİMİ
+            selected_profiles_data = []
             if mode == "Profil (Programlı)" and selected_regs:
-                st.write("### Profil Seçimi")
-                profiles = get_workout_profiles()
-                matching_profiles = [p for p in profiles if p['region'] in selected_regs]
+                st.write("### Profil Seçimi (Bölgelere Göre)")
+                all_profiles = get_workout_profiles()
                 
-                if matching_profiles:
-                    prof_names = [p['name'] for p in matching_profiles]
-                    sel_prof_name = st.selectbox("Uygulanacak Profil", prof_names)
-                    selected_profile_data = next((p for p in matching_profiles if p['name'] == sel_prof_name), None)
-                else:
-                    st.warning("Seçilen bölgeler için kayıtlı profil bulunamadı.")
+                # Her seçili bölge için profil sor
+                for region in selected_regs:
+                    # Bu bölgeye uygun profilleri bul
+                    matching_profs = [p for p in all_profiles if p['region'] == region]
+                    
+                    if matching_profs:
+                        prof_names = ["Seçilmedi"] + [p['name'] for p in matching_profs]
+                        selected_name = st.selectbox(f"{region} için Profil:", prof_names, key=f"sel_prof_for_{region}")
+                        
+                        if selected_name != "Seçilmedi":
+                            # Datasını bulup listeye ekle
+                            prof_data = next((p for p in matching_profs if p['name'] == selected_name), None)
+                            if prof_data:
+                                selected_profiles_data.append(prof_data)
+                    else:
+                        st.warning(f"{region} için kayıtlı profil bulunamadı. (Manuel devam edilebilir)")
 
             if st.button("🚀 İdmanı Başlat", type="primary"):
                 if not selected_regs:
@@ -544,13 +555,15 @@ elif main_module == "Fiziksel Takip":
                     lw["mode"] = mode
                     lw["selected_regions"] = selected_regs
                     
-                    if mode == "Profil (Programlı)" and selected_profile_data:
-                        lw["selected_profile"] = selected_profile_data
+                    if mode == "Profil (Programlı)" and selected_profiles_data:
+                        # Tüm seçili profillerin egzersizlerini sırayla kuyruğa ekle
                         queue = []
-                        for ex in selected_profile_data.get('exercises', []):
-                            ex_copy = ex.copy()
-                            ex_copy['status'] = 'pending'
-                            queue.append(ex_copy)
+                        for prof in selected_profiles_data:
+                            for ex in prof.get('exercises', []):
+                                ex_copy = ex.copy()
+                                ex_copy['status'] = 'pending'
+                                ex_copy['origin_region'] = prof['region'] # Bölge bilgisini taşı
+                                queue.append(ex_copy)
                         lw["profile_queue"] = queue
                     
                     st.rerun()
@@ -568,10 +581,26 @@ elif main_module == "Fiziksel Takip":
                     current_ex = pending_exercises[0]
                     st.success(f"🏋️‍♂️ Sıradaki Hareket: **{current_ex['name']}**")
                     
-                    if lw["current_section_start"] is None:
+                    # Otomatik Bölüm Değişimi Kontrolü
+                    target_region = current_ex.get('origin_region', 'Genel')
+                    
+                    # Eğer hiç bölüm başlamadıysa VEYA bölüm değiştiyse yeni bölüm aç
+                    if lw["current_section_start"] is None or (lw["current_section_name"] != target_region):
+                        # Önceki bölümü kaydet (eğer varsa)
+                        if lw["current_section_start"] is not None:
+                            prev_dur = int((datetime.datetime.now() - lw["current_section_start"]).total_seconds() / 60)
+                            lw["sections"].append({
+                                "name": lw["current_section_name"],
+                                "duration": prev_dur,
+                                "exercises": lw["exercises_temp"]
+                            })
+                            st.toast(f"{lw['current_section_name']} Bölümü Tamamlandı!")
+                        
+                        # Yeni bölümü başlat
                         lw["current_section_start"] = datetime.datetime.now()
-                        lw["current_section_name"] = lw["selected_profile"].get('region', 'Genel')
-                        lw["exercises_temp"] = [] 
+                        lw["current_section_name"] = target_region
+                        lw["exercises_temp"] = []
+                        st.rerun()
 
                     if 'profile_current_set_idx' not in st.session_state:
                         st.session_state.profile_current_set_idx = 0
@@ -584,9 +613,26 @@ elif main_module == "Fiziksel Takip":
                         target_set = target_sets[current_set_idx]
                         st.markdown(f"#### Set {current_set_idx + 1} / {len(target_sets)}")
                         
+                        # --- CANLI İDMAN ESNASINDA DA BUTONLU GİRİŞ ---
+                        w_key_live = f"live_w_{current_ex['name']}_{current_set_idx}"
+                        r_key_live = f"live_r_{current_ex['name']}_{current_set_idx}"
+                        
+                        if w_key_live not in st.session_state: st.session_state[w_key_live] = float(target_set.get('weight', 0))
+                        if r_key_live not in st.session_state: st.session_state[r_key_live] = int(target_set.get('reps', 0))
+
+                        # Butonlar
+                        st.write("Ağırlık Güncelle (Opsiyonel):")
+                        is_dumbell = "dumbell" in current_ex['name'].lower() or "dumbbell" in current_ex['name'].lower()
+                        w_buttons = [2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30] if is_dumbell else [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+                        cols_w_live = st.columns(8)
+                        for i, w in enumerate(w_buttons):
+                            if cols_w_live[i % 8].button(str(w), key=f"live_btn_w_{w}_{current_set_idx}"):
+                                st.session_state[w_key_live] = float(w)
+                                st.rerun()
+
                         c1, c2 = st.columns(2)
-                        act_weight = c1.number_input("Ağırlık (KG)", value=float(target_set.get('weight', 0)), step=2.5, key=f"w_{current_set_idx}")
-                        act_reps = c2.number_input("Tekrar", value=int(target_set.get('reps', 0)), step=1, key=f"r_{current_set_idx}")
+                        act_weight = c1.number_input("Ağırlık (KG)", key=w_key_live, step=2.5)
+                        act_reps = c2.number_input("Tekrar", key=r_key_live, step=1)
                         
                         st.write("Zorlanma & ROM:")
                         c_rom, c_diff = st.columns(2)
@@ -631,8 +677,9 @@ elif main_module == "Fiziksel Takip":
                             del st.session_state.profile_temp_sets
                             st.rerun()
                 else:
-                    st.success("Tüm profil tamamlandı!")
-                    if st.button("Bölümü Kaydet"):
+                    st.success("Tüm profiller tamamlandı!")
+                    if st.button("Son Bölümü Kaydet ve Bitir"):
+                        # Son bölümü de kaydet
                         end_time = datetime.datetime.now()
                         duration_mins = int((end_time - lw["current_section_start"]).total_seconds() / 60)
                         lw["sections"].append({
@@ -793,7 +840,7 @@ elif main_module == "Fiziksel Takip":
                     if c3.button("Sil", key=f"del_cust_{row['id']}"): delete_from_db("custom_exercises", row['id'])
         except: pass
 
-    # --- SEKME 4: İDMAN PROFİLİ OLUŞTURMA (YENİ & GÜNCELLENMİŞ) ---
+    # --- SEKME 4: İDMAN PROFİLİ OLUŞTURMA (DÜZELTİLMİŞ) ---
     with tabs[3]:
         st.header("🏋️‍♂️ İdman Profili Oluşturma")
         
@@ -877,8 +924,7 @@ elif main_module == "Fiziksel Takip":
                                     ex_opts = FULL_EXERCISE_LIST.get(reg, [])
                                     sel_ex = c_add2.selectbox("Hareket", ex_opts, key=f"ex_sel_{prof['id']}")
                                     
-                                    # --- BUTONLU VERİ GİRİŞİ (DÜZELTİLMİŞ) ---
-                                    # Session Keylerini Tanımla
+                                    # --- BUTONLU VERİ GİRİŞİ ---
                                     w_key = f"w_input_{prof['id']}"
                                     r_key = f"r_input_{prof['id']}"
                                     
@@ -905,12 +951,13 @@ elif main_module == "Fiziksel Takip":
                                             st.rerun()
 
                                     c_in1, c_in2 = st.columns(2)
-                                    # Key parametresini kullanarak butonun güncellediği state'i bağlıyoruz
-                                    final_w = c_in1.number_input("Ağırlık", key=w_key, step=2.5)
-                                    final_r = c_in2.number_input("Tekrar", key=r_key, step=1)
+                                    c_in1.number_input("Ağırlık", key=w_key, step=2.5)
+                                    c_in2.number_input("Tekrar", key=r_key, step=1)
                                     
                                     if st.button("Listeye Set Ekle", key=f"add_list_set_{prof['id']}"):
-                                        st.session_state[f"temp_sets_{prof['id']}"].append({"weight": final_w, "reps": final_r})
+                                        val_w = st.session_state[w_key]
+                                        val_r = st.session_state[r_key]
+                                        st.session_state[f"temp_sets_{prof['id']}"].append({"weight": val_w, "reps": val_r})
                                         st.rerun()
                                     
                                     curr_sets = st.session_state[f"temp_sets_{prof['id']}"]
