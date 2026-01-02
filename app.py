@@ -134,15 +134,18 @@ def get_full_exercise_map():
     return full_map
 
 def get_workout_profiles():
+    """Tüm idman profillerini çeker"""
     try:
         docs = db.collection("workout_profiles").stream()
-        return [doc.to_dict() | {"id": doc.id} for doc in docs]
+        # id'yi dict içine alıyoruz ki işlemlerde kolay olsun
+        return [dict(doc.to_dict(), **{"id": doc.id}) for doc in docs]
     except: return []
 
 def get_exercise_profiles():
+    """Özel hareket profillerini (FST-7 vb.) çeker"""
     try:
         docs = db.collection("exercise_profiles").stream()
-        return [doc.to_dict() | {"id": doc.id} for doc in docs]
+        return [dict(doc.to_dict(), **{"id": doc.id}) for doc in docs]
     except: return []
 
 def speak(text, lang='en'):
@@ -352,6 +355,7 @@ elif main_module == "Fiziksel Takip":
     
     FULL_EXERCISE_LIST = get_full_exercise_map()
     
+    # --- 4 SEKME BURADA ---
     tabs = st.tabs(["📅 Fiziksel Aktivite Takip Tablosu", "⚡ Canlı İdman Modu", "⚙️ Hareket Tanımla", "🏋️‍♂️ İdman Profili Oluşturma"])
 
     # --- SEKME 1: GEÇMİŞ VE ANALİZ ---
@@ -785,7 +789,7 @@ elif main_module == "Fiziksel Takip":
             c_data = [{"Bölge": doc.to_dict().get('region'), "Hareket": doc.to_dict().get('name'), "id": doc.id} for doc in c_docs]
             if c_data:
                 c_df = pd.DataFrame(c_data)
-                for idx, row in c_df.iterrows():
+                for index, row in c_df.iterrows():
                     c1, c2, c3 = st.columns([2, 4, 1])
                     c1.write(f"**{row['Bölge']}**")
                     c2.write(row['Hareket'])
