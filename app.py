@@ -137,7 +137,6 @@ def get_workout_profiles():
     """Tüm idman profillerini çeker"""
     try:
         docs = db.collection("workout_profiles").stream()
-        # id'yi dict içine alıyoruz ki işlemlerde kolay olsun
         return [dict(doc.to_dict(), **{"id": doc.id}) for doc in docs]
     except: return []
 
@@ -355,7 +354,7 @@ elif main_module == "Fiziksel Takip":
     
     FULL_EXERCISE_LIST = get_full_exercise_map()
     
-    # --- 4 SEKME BURADA ---
+    # 4 SEKME YAPISI:
     tabs = st.tabs(["📅 Fiziksel Aktivite Takip Tablosu", "⚡ Canlı İdman Modu", "⚙️ Hareket Tanımla", "🏋️‍♂️ İdman Profili Oluşturma"])
 
     # --- SEKME 1: GEÇMİŞ VE ANALİZ ---
@@ -492,7 +491,7 @@ elif main_module == "Fiziksel Takip":
             st.session_state.live_workout = {
                 "active": False, "start_time": None, "sections": [],
                 "current_section_start": None, "exercises_temp": [],
-                "mode": "Manual", # Manual or Profile
+                "mode": "Manual", 
                 "selected_regions": [],
                 "selected_profile": None,
                 "profile_queue": [] 
@@ -506,9 +505,11 @@ elif main_module == "Fiziksel Takip":
             mode = st.radio("Mod", ["Manuel (Serbest)", "Profil (Programlı)"], horizontal=True)
             
             st.write("### Bugün Hangi Bölgeler Çalışılacak?")
+            
             if 'temp_selected_regions' not in st.session_state:
                 st.session_state.temp_selected_regions = []
             
+            # BUTONLU BÖLGE SEÇİMİ
             regions_grid = ["Göğüs", "Sırt", "Bacak", "Omuz", "Ön Kol", "Arka Kol", "Karın", "Kardiyo"]
             cols = st.columns(4)
             for i, r in enumerate(regions_grid):
